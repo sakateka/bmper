@@ -1,0 +1,4 @@
+[package]
+name = "bmper"
+version = "0.1.0"
+authors = ["Sergey Kacheev <uo0@ya.ru>"]
