@@ -1,5 +1,5 @@
-extern crate clap;
 extern crate byteorder;
+extern crate clap;
 
 pub mod bmp;
 mod args;

@@ -18,7 +18,7 @@
 use std::fs::File;
 use std::path::Path;
 use std::io::{self, BufReader};
-use byteorder::{ReadBytesExt, BigEndian};
+use byteorder::{BigEndian, ReadBytesExt};
 
 /// An uncompressed format.
 pub const BI_RGB: i16 = 0;
@@ -59,12 +59,13 @@ impl BMPFileHeader {
     pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPFileHeader, io::Error> {
         let mut f = BufReader::new(try!(File::open(p)));
         let sig = f.read_i16::<BigEndian>().unwrap();
-        if ((sig >> 8) & 0xff) as u8 != 'B' as u8 || (sig & 0xff) as u8 != 'M' as u8{
+        if ((sig >> 8) & 0xff) as u8 != 'B' as u8 || (sig & 0xff) as u8 != 'M' as u8 {
             return Err(io::Error::new(
-                io::ErrorKind::Other, format!("Invalid BMP signature {:?}", sig)
+                io::ErrorKind::Other,
+                format!("Invalid BMP signature {:?}", sig),
             ));
         }
-        Ok(BMPFileHeader{
+        Ok(BMPFileHeader {
             bf_type: sig,
             bf_size: 0,
             bf_reserved1: 0,
