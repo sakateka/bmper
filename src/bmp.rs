@@ -17,8 +17,8 @@
 
 use std::fs::File;
 use std::path::Path;
-use std::io::{self, BufReader};
-use byteorder::{BigEndian, ReadBytesExt};
+use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use byteorder::{LittleEndian, ReadBytesExt};
 
 /// An uncompressed format.
 pub const BI_RGB: i16 = 0;
@@ -40,6 +40,12 @@ pub const BI_JPEG: i16 = 4;
 ///  Indicates that the image is a PNG image.
 pub const BI_PNG: i16 = 5;
 
+pub const BMP_FILE_HEADER_SIZE: u64 = 14;
+pub const BMP_CORE_INFO_HEADER_SIZE: i32 = 12;
+pub const BMP_INFO_HEADER_SIZE: i32 = 40;
+pub const BMP_V4_INFO_HEADER_SIZE: i32 = 104;
+pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
+
 #[derive(Debug)]
 pub struct BMPFileHeader {
     /// The file type; must be BM
@@ -57,21 +63,66 @@ pub struct BMPFileHeader {
 
 impl BMPFileHeader {
     pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPFileHeader, io::Error> {
-        let mut f = BufReader::new(try!(File::open(p)));
-        let sig = f.read_i16::<BigEndian>().unwrap();
-        if ((sig >> 8) & 0xff) as u8 != 'B' as u8 || (sig & 0xff) as u8 != 'M' as u8 {
+        let mut f = BufReader::new(File::open(p)?);
+        let mut sig = [0u8; 2];
+        try!(f.read_exact(&mut sig));
+        if &sig != b"BM" {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("Invalid BMP signature {:?}", sig),
+                format!("Invalid BMP signature: '{:?}'", sig),
             ));
         }
+        let size = f.read_i32::<LittleEndian>()?;
+        let reserved1 = f.read_i16::<LittleEndian>()?;
+        let reserved2 = f.read_i16::<LittleEndian>()?;
+        let offset_bits = f.read_i32::<LittleEndian>()?;
         Ok(BMPFileHeader {
-            bf_type: sig,
-            bf_size: 0,
-            bf_reserved1: 0,
-            bf_reserved2: 0,
-            bf_offset_bits: 0,
+            bf_type: ((sig[0] as i16) << 8) + (sig[1] as i16),
+            bf_size: size,
+            bf_reserved1: reserved1,
+            bf_reserved2: reserved2,
+            bf_offset_bits: offset_bits,
         })
+    }
+}
+
+#[derive(Debug)]
+pub enum GenericBMPInfo {
+    CoreInfo(BMPCoreInfo),
+    Info(BMPInfo),
+}
+
+impl GenericBMPInfo {
+    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<GenericBMPInfo, io::Error> {
+        let mut f = BufReader::new(File::open(p)?);
+        // skip file header
+        f.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
+
+        let size = f.read_i32::<LittleEndian>()?;
+        if size == BMP_CORE_INFO_HEADER_SIZE {
+            println!("BMP with core header!");
+        } else if size == BMP_INFO_HEADER_SIZE {
+            println!("BMP with info header!");
+        } else if size == BMP_V4_INFO_HEADER_SIZE {
+            println!("BMP with BMPV4Header!");
+        } else if size == BMP_V5_INFO_HEADER_SIZE {
+            println!("BMP with BMPV5Header!");
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Unknown info header size: {}", size),
+            ));
+        };
+        Ok(GenericBMPInfo::CoreInfo(BMPCoreInfo {
+            bmci_header: BMPCoreHeader {
+                bc_size: size,
+                bc_width: 0,
+                bc_height: 0,
+                bc_planes: 0,
+                bc_bit_count: 0,
+            },
+            bmci_colors: Vec::<RGBTriple>::new(),
+        }))
     }
 }
 

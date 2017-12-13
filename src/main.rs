@@ -11,6 +11,8 @@ pub fn main() {
         println!("Info from file {:?}", filename);
         let fh = bmp::BMPFileHeader::load_from_file(filename);
         println!("{:?}", fh);
+        let fi = bmp::GenericBMPInfo::load_from_file(filename);
+        println!("{:?}", fi);
     }
 }
 
