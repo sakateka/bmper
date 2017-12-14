@@ -17,7 +17,7 @@
 
 use std::fs::File;
 use std::path::Path;
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 /// An uncompressed format.
@@ -87,42 +87,44 @@ impl BMPFileHeader {
 }
 
 #[derive(Debug)]
-pub enum GenericBMPInfo {
+pub enum BMPGenericInfo {
     CoreInfo(BMPCoreInfo),
     Info(BMPInfo),
 }
 
-impl GenericBMPInfo {
-    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<GenericBMPInfo, io::Error> {
+impl BMPGenericInfo {
+    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPGenericInfo, io::Error> {
         let mut f = BufReader::new(File::open(p)?);
         // skip file header
         f.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
-
         let size = f.read_i32::<LittleEndian>()?;
+        f.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
+
         if size == BMP_CORE_INFO_HEADER_SIZE {
-            println!("BMP with core header!");
+            return Ok(BMPGenericInfo::CoreInfo(BMPCoreInfo {
+                bmci_header: BMPCoreHeader::load_from_reader(&mut f)?,
+                bmci_colors: Vec::<RGBTriple>::new(),
+            }));
         } else if size == BMP_INFO_HEADER_SIZE {
-            println!("BMP with info header!");
+            return Ok(BMPGenericInfo::Info(BMPInfo {
+                bmi_header: BMPGenericInfoHeader::Info(BMPInfoHeader::load_from_reader(&mut f)?),
+                bmi_colors: Vec::<RGBQuad>::new(),
+            }));
         } else if size == BMP_V4_INFO_HEADER_SIZE {
-            println!("BMP with BMPV4Header!");
+            return Ok(BMPGenericInfo::Info(BMPInfo {
+                bmi_header: BMPGenericInfoHeader::V4Info(BMPV4Header::load_from_reader(&mut f)?),
+                bmi_colors: Vec::<RGBQuad>::new(),
+            }));
         } else if size == BMP_V5_INFO_HEADER_SIZE {
-            println!("BMP with BMPV5Header!");
-        } else {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Unknown info header size: {}", size),
-            ));
-        };
-        Ok(GenericBMPInfo::CoreInfo(BMPCoreInfo {
-            bmci_header: BMPCoreHeader {
-                bc_size: size,
-                bc_width: 0,
-                bc_height: 0,
-                bc_planes: 0,
-                bc_bit_count: 0,
-            },
-            bmci_colors: Vec::<RGBTriple>::new(),
-        }))
+            return Ok(BMPGenericInfo::Info(BMPInfo {
+                bmi_header: BMPGenericInfoHeader::V5Info(BMPV5Header::load_from_reader(&mut f)?),
+                bmi_colors: Vec::<RGBQuad>::new(),
+            }));
+        }
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Unknown info header, size={} bytes", size),
+        ))
     }
 }
 
@@ -148,6 +150,18 @@ pub struct BMPCoreHeader {
     bc_bit_count: i16,
 }
 
+impl BMPCoreHeader {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPCoreHeader, io::Error> {
+        Ok(BMPCoreHeader {
+            bc_size: r.read_i32::<LittleEndian>()?,
+            bc_width: r.read_i16::<LittleEndian>()?,
+            bc_height: r.read_i16::<LittleEndian>()?,
+            bc_planes: r.read_i16::<LittleEndian>()?,
+            bc_bit_count: r.read_i16::<LittleEndian>()?,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct RGBTriple {
     rgbt_blue: u8,
@@ -156,9 +170,16 @@ pub struct RGBTriple {
 }
 
 #[derive(Debug)]
+pub enum BMPGenericInfoHeader {
+    Info(BMPInfoHeader),
+    V4Info(BMPV4Header),
+    V5Info(BMPV5Header),
+}
+
+#[derive(Debug)]
 pub struct BMPInfo {
     /// A BITMAPINFOHEADER structure that contains information about the dimensions of color format.
-    bmi_header: BMPInfoHeader,
+    bmi_header: BMPGenericInfoHeader,
     /// An array of RGBQUAD. The elements of the array that make up the color table.
     bmi_colors: Vec<RGBQuad>,
 }
@@ -187,6 +208,23 @@ pub struct BMPInfoHeader {
     bi_clr_used: i32,
     /// The number of color indexes that are required for displaying the bitmap
     bi_clr_important: i32,
+}
+impl BMPInfoHeader {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPInfoHeader, io::Error> {
+        Ok(BMPInfoHeader {
+            bi_size: r.read_i32::<LittleEndian>()?,
+            bi_width: r.read_i32::<LittleEndian>()?,
+            bi_height: r.read_i32::<LittleEndian>()?,
+            bi_planes: r.read_i16::<LittleEndian>()?,
+            bi_bit_count: r.read_i16::<LittleEndian>()?,
+            bi_compression: r.read_i32::<LittleEndian>()?,
+            bi_size_image: r.read_i32::<LittleEndian>()?,
+            bi_x_pels_per_meter: r.read_i32::<LittleEndian>()?,
+            bi_y_pels_per_meter: r.read_i32::<LittleEndian>()?,
+            bi_clr_used: r.read_i32::<LittleEndian>()?,
+            bi_clr_important: r.read_i32::<LittleEndian>()?,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -222,11 +260,47 @@ pub struct BMPV4Header {
     bv4_gamma_blue: i32,
 }
 
+impl BMPV4Header {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPV4Header, io::Error> {
+        Ok(BMPV4Header {
+            bv4_size: r.read_i32::<LittleEndian>()?,
+            bv4_width: r.read_i32::<LittleEndian>()?,
+            bv4_height: r.read_i32::<LittleEndian>()?,
+            bv4_planes: r.read_i16::<LittleEndian>()?,
+            bv4_bit_count: r.read_i16::<LittleEndian>()?,
+            bv4_v4_compression: r.read_i32::<LittleEndian>()?,
+            bv4_size_image: r.read_i32::<LittleEndian>()?,
+            bv4_x_pels_per_meter: r.read_i32::<LittleEndian>()?,
+            bv4_y_pels_per_meter: r.read_i32::<LittleEndian>()?,
+            bv4_clr_used: r.read_i32::<LittleEndian>()?,
+            bv4_clr_important: r.read_i32::<LittleEndian>()?,
+            bv4_red_mask: r.read_i32::<LittleEndian>()?,
+            bv4_green_mask: r.read_i32::<LittleEndian>()?,
+            bv4_blue_mask: r.read_i32::<LittleEndian>()?,
+            bv4_alpha_mask: r.read_i32::<LittleEndian>()?,
+            bv4_cs_type: r.read_i32::<LittleEndian>()?,
+            bv4_endpoints: CIEXYZTriple::load_from_reader(r)?,
+            bv4_gamma_red: r.read_i32::<LittleEndian>()?,
+            bv4_gamma_green: r.read_i32::<LittleEndian>()?,
+            bv4_gamma_blue: r.read_i32::<LittleEndian>()?,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct CIEXYZTriple {
     ciexyz_red: CIEXYZ,
     ciexyz_green: CIEXYZ,
     ciexyz_blue: CIEXYZ,
+}
+impl CIEXYZTriple {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<CIEXYZTriple, io::Error> {
+        Ok(CIEXYZTriple{
+            ciexyz_red: CIEXYZ::load_from_reader(r)?,
+            ciexyz_green: CIEXYZ::load_from_reader(r)?,
+            ciexyz_blue: CIEXYZ::load_from_reader(r)?,
+        })
+    }
 }
 
 type Fxpt2Dot30 = u32;
@@ -235,6 +309,16 @@ pub struct CIEXYZ {
     ciexyz_x: Fxpt2Dot30,
     ciexyz_y: Fxpt2Dot30,
     ciexyz_z: Fxpt2Dot30,
+}
+
+impl CIEXYZ {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<CIEXYZ, io::Error> {
+        Ok(CIEXYZ {
+            ciexyz_x: r.read_u32::<LittleEndian>()?,
+            ciexyz_y: r.read_u32::<LittleEndian>()?,
+            ciexyz_z: r.read_u32::<LittleEndian>()?,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -263,4 +347,35 @@ pub struct BMPV5Header {
     bv5_profile_data: i32,
     bv5_profile_size: i32,
     bv5_reserved: i32,
+}
+
+impl BMPV5Header {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPV5Header, io::Error> {
+        Ok(BMPV5Header {
+            bv5_size: r.read_i32::<LittleEndian>()?,
+            bv5_width: r.read_i32::<LittleEndian>()?,
+            bv5_height: r.read_i32::<LittleEndian>()?,
+            bv5_planes: r.read_i16::<LittleEndian>()?,
+            bv5_bit_count: r.read_i16::<LittleEndian>()?,
+            bv5_compression: r.read_i32::<LittleEndian>()?,
+            bv5_size_image: r.read_i32::<LittleEndian>()?,
+            bv5_x_pels_per_meter: r.read_i32::<LittleEndian>()?,
+            bv5_y_pels_per_meter: r.read_i32::<LittleEndian>()?,
+            bv5_clr_used: r.read_i32::<LittleEndian>()?,
+            bv5_clr_important: r.read_i32::<LittleEndian>()?,
+            bv5_red_mask: r.read_i32::<LittleEndian>()?,
+            bv5_green_mask: r.read_i32::<LittleEndian>()?,
+            bv5_blue_mask: r.read_i32::<LittleEndian>()?,
+            bv5_alpha_mask: r.read_i32::<LittleEndian>()?,
+            bv5_cs_type: r.read_i32::<LittleEndian>()?,
+            bv5_endpoints: CIEXYZTriple::load_from_reader(r)?,
+            bv5_gamma_red: r.read_i32::<LittleEndian>()?,
+            bv5_gamma_green: r.read_i32::<LittleEndian>()?,
+            bv5_gamma_blue: r.read_i32::<LittleEndian>()?,
+            bv5_intent: r.read_i32::<LittleEndian>()?,
+            bv5_profile_data: r.read_i32::<LittleEndian>()?,
+            bv5_profile_size: r.read_i32::<LittleEndian>()?,
+            bv5_reserved: r.read_i32::<LittleEndian>()?,
+        })
+    }
 }
