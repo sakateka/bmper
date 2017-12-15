@@ -72,16 +72,12 @@ impl BMPFileHeader {
                 format!("Invalid BMP signature: '{:?}'", sig),
             ));
         }
-        let size = f.read_i32::<LittleEndian>()?;
-        let reserved1 = f.read_i16::<LittleEndian>()?;
-        let reserved2 = f.read_i16::<LittleEndian>()?;
-        let offset_bits = f.read_i32::<LittleEndian>()?;
         Ok(BMPFileHeader {
             bf_type: ((sig[0] as i16) << 8) + (sig[1] as i16),
-            bf_size: size,
-            bf_reserved1: reserved1,
-            bf_reserved2: reserved2,
-            bf_offset_bits: offset_bits,
+            bf_size: f.read_i32::<LittleEndian>()?,
+            bf_reserved1: f.read_i16::<LittleEndian>()?,
+            bf_reserved2: f.read_i16::<LittleEndian>()?,
+            bf_offset_bits: f.read_i32::<LittleEndian>()?,
         })
     }
 }
@@ -295,7 +291,7 @@ pub struct CIEXYZTriple {
 }
 impl CIEXYZTriple {
     pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<CIEXYZTriple, io::Error> {
-        Ok(CIEXYZTriple{
+        Ok(CIEXYZTriple {
             ciexyz_red: CIEXYZ::load_from_reader(r)?,
             ciexyz_green: CIEXYZ::load_from_reader(r)?,
             ciexyz_blue: CIEXYZ::load_from_reader(r)?,

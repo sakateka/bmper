@@ -15,5 +15,29 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
                         .index(1),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("change")
+                .about("Change image properties")
+                .arg(
+                    Arg::with_name("colors")
+                        .short("c")
+                        .long("colors")
+                        .value_name("N")
+                        .help("Round colors to N (reduce num of colors)")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("SRC")
+                        .help("Source image file")
+                        .required(true)
+                        .index(1),
+                )
+                .arg(
+                    Arg::with_name("DST")
+                        .help("Destination image file")
+                        .required(true)
+                        .index(2),
+                ),
+        )
         .get_matches()
 }
