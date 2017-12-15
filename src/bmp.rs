@@ -15,9 +15,10 @@
 //! and https://msdn.microsoft.com/en-us/library/dd183391(v=vs.85).aspx
 //! for more info
 
+use std::error::Error;
 use std::fs::File;
 use std::path::Path;
-use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 /// An uncompressed format.
@@ -47,6 +48,43 @@ pub const BMP_V4_INFO_HEADER_SIZE: i32 = 104;
 pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 
 #[derive(Debug)]
+pub struct BMPImage {
+    header: BMPFileHeader,
+    info: BMPGenericInfo,
+    bitmap: Vec<u8>,
+}
+
+impl BMPImage {
+    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPImage, io::Error> {
+        let mut f = BufReader::new(File::open(p)?);
+        BMPImage::load_from_reader(&mut f)
+    }
+    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPImage, io::Error> {
+        let header = BMPFileHeader::load_from_reader(r);
+        if header.is_err() {
+            let err = header.err().unwrap();
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Unsupported file format: {}", err.description()),
+            ));
+        }
+        let info = BMPGenericInfo::load_from_reader(r);
+        if info.is_err() {
+            let err = info.err().unwrap();
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to parse metadata: {}", err.description()),
+            ));
+        }
+        Ok(BMPImage{
+            header: header.unwrap(),
+            info: info.unwrap(),
+            bitmap: Vec::new(),
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct BMPFileHeader {
     /// The file type; must be BM
     bf_type: i16,
@@ -64,8 +102,11 @@ pub struct BMPFileHeader {
 impl BMPFileHeader {
     pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPFileHeader, io::Error> {
         let mut f = BufReader::new(File::open(p)?);
+        BMPFileHeader::load_from_reader(&mut f)
+    }
+    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPFileHeader, io::Error> {
         let mut sig = [0u8; 2];
-        try!(f.read_exact(&mut sig));
+        try!(r.read_exact(&mut sig));
         if &sig != b"BM" {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
@@ -74,10 +115,10 @@ impl BMPFileHeader {
         }
         Ok(BMPFileHeader {
             bf_type: ((sig[0] as i16) << 8) + (sig[1] as i16),
-            bf_size: f.read_i32::<LittleEndian>()?,
-            bf_reserved1: f.read_i16::<LittleEndian>()?,
-            bf_reserved2: f.read_i16::<LittleEndian>()?,
-            bf_offset_bits: f.read_i32::<LittleEndian>()?,
+            bf_size: r.read_i32::<LittleEndian>()?,
+            bf_reserved1: r.read_i16::<LittleEndian>()?,
+            bf_reserved2: r.read_i16::<LittleEndian>()?,
+            bf_offset_bits: r.read_i32::<LittleEndian>()?,
         })
     }
 }
@@ -91,29 +132,32 @@ pub enum BMPGenericInfo {
 impl BMPGenericInfo {
     pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPGenericInfo, io::Error> {
         let mut f = BufReader::new(File::open(p)?);
+        BMPGenericInfo::load_from_reader(&mut f)
+    }
+    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPGenericInfo, io::Error> {
         // skip file header
-        f.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
-        let size = f.read_i32::<LittleEndian>()?;
-        f.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
+        r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
+        let size = r.read_i32::<LittleEndian>()?;
+        r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
 
         if size == BMP_CORE_INFO_HEADER_SIZE {
             return Ok(BMPGenericInfo::CoreInfo(BMPCoreInfo {
-                bmci_header: BMPCoreHeader::load_from_reader(&mut f)?,
+                bmci_header: BMPCoreHeader::load_from_reader(r)?,
                 bmci_colors: Vec::<RGBTriple>::new(),
             }));
         } else if size == BMP_INFO_HEADER_SIZE {
             return Ok(BMPGenericInfo::Info(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::Info(BMPInfoHeader::load_from_reader(&mut f)?),
+                bmi_header: BMPGenericInfoHeader::Info(BMPInfoHeader::load_from_reader(r)?),
                 bmi_colors: Vec::<RGBQuad>::new(),
             }));
         } else if size == BMP_V4_INFO_HEADER_SIZE {
             return Ok(BMPGenericInfo::Info(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::V4Info(BMPV4Header::load_from_reader(&mut f)?),
+                bmi_header: BMPGenericInfoHeader::V4Info(BMPV4Header::load_from_reader(r)?),
                 bmi_colors: Vec::<RGBQuad>::new(),
             }));
         } else if size == BMP_V5_INFO_HEADER_SIZE {
             return Ok(BMPGenericInfo::Info(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::V5Info(BMPV5Header::load_from_reader(&mut f)?),
+                bmi_header: BMPGenericInfoHeader::V5Info(BMPV5Header::load_from_reader(r)?),
                 bmi_colors: Vec::<RGBQuad>::new(),
             }));
         }

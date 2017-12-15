@@ -16,16 +16,7 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("change")
-                .about("Change image properties")
-                .arg(
-                    Arg::with_name("colors")
-                        .short("c")
-                        .long("colors")
-                        .value_name("N")
-                        .help("Round colors to N (reduce num of colors)")
-                        .takes_value(true),
-                )
+            SubCommand::with_name("grayscale")
                 .arg(
                     Arg::with_name("SRC")
                         .help("Source image file")
