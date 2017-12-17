@@ -1,8 +1,8 @@
 //! Device-independent bitmaps
 //! The format for a DIB is the following (for more information, see Bitmap Storage ):
 //!   * a BITMAPFILEHEADER structure
-//!   * either a BITMAPCOREHEADER, a BITMAPINFOHEADER, a BITMAPV4HEADER, or a BITMAPV5HEADER structure.
-//!   * an optional color table, which is either a set of RGBQUAD structures or a set of RGBTRIPLE structures.
+//!   * either a BITMAPINFOHEADER, a BITMAPV4HEADER, or a BITMAPV5HEADER structure.
+//!   * an optional color table, which is either a set of RGBQUAD structures
 //!   * the bitmap data
 //!   * optional Profile data
 //! A color table describes how pixel values correspond to RGB color values.
@@ -15,6 +15,7 @@
 //! and https://msdn.microsoft.com/en-us/library/dd183391(v=vs.85).aspx
 //! for more info
 
+use std::fmt;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
@@ -42,7 +43,6 @@ pub const BI_JPEG: i16 = 4;
 pub const BI_PNG: i16 = 5;
 
 pub const BMP_FILE_HEADER_SIZE: u64 = 14;
-pub const BMP_CORE_INFO_HEADER_SIZE: i32 = 12;
 pub const BMP_INFO_HEADER_SIZE: i32 = 40;
 pub const BMP_V4_INFO_HEADER_SIZE: i32 = 104;
 pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
@@ -50,7 +50,7 @@ pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 #[derive(Debug)]
 pub struct BMPImage {
     header: BMPFileHeader,
-    info: BMPGenericInfo,
+    info: BMPInfo,
     bitmap: Vec<u8>,
 }
 
@@ -68,7 +68,7 @@ impl BMPImage {
                 format!("Unsupported file format: {}", err.description()),
             ));
         }
-        let info = BMPGenericInfo::load_from_reader(r);
+        let info = BMPInfo::load_from_reader(r);
         if info.is_err() {
             let err = info.err().unwrap();
             return Err(io::Error::new(
@@ -76,11 +76,18 @@ impl BMPImage {
                 format!("Failed to parse metadata: {}", err.description()),
             ));
         }
-        Ok(BMPImage{
+        Ok(BMPImage {
             header: header.unwrap(),
             info: info.unwrap(),
             bitmap: Vec::new(),
         })
+    }
+}
+
+impl fmt::Display for BMPImage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.header.fmt(f)?;
+        self.info.fmt(f)
     }
 }
 
@@ -99,12 +106,20 @@ pub struct BMPFileHeader {
     bf_offset_bits: i32,
 }
 
+impl fmt::Display for BMPFileHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Size: {} bytes\n", self.bf_size)
+    }
+}
+
 impl BMPFileHeader {
     pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPFileHeader, io::Error> {
         let mut f = BufReader::new(File::open(p)?);
         BMPFileHeader::load_from_reader(&mut f)
     }
-    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPFileHeader, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(
+        r: &mut R,
+    ) -> Result<BMPFileHeader, io::Error> {
         let mut sig = [0u8; 2];
         try!(r.read_exact(&mut sig));
         if &sig != b"BM" {
@@ -124,92 +139,6 @@ impl BMPFileHeader {
 }
 
 #[derive(Debug)]
-pub enum BMPGenericInfo {
-    CoreInfo(BMPCoreInfo),
-    Info(BMPInfo),
-}
-
-impl BMPGenericInfo {
-    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPGenericInfo, io::Error> {
-        let mut f = BufReader::new(File::open(p)?);
-        BMPGenericInfo::load_from_reader(&mut f)
-    }
-    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPGenericInfo, io::Error> {
-        // skip file header
-        r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
-        let size = r.read_i32::<LittleEndian>()?;
-        r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
-
-        if size == BMP_CORE_INFO_HEADER_SIZE {
-            return Ok(BMPGenericInfo::CoreInfo(BMPCoreInfo {
-                bmci_header: BMPCoreHeader::load_from_reader(r)?,
-                bmci_colors: Vec::<RGBTriple>::new(),
-            }));
-        } else if size == BMP_INFO_HEADER_SIZE {
-            return Ok(BMPGenericInfo::Info(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::Info(BMPInfoHeader::load_from_reader(r)?),
-                bmi_colors: Vec::<RGBQuad>::new(),
-            }));
-        } else if size == BMP_V4_INFO_HEADER_SIZE {
-            return Ok(BMPGenericInfo::Info(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::V4Info(BMPV4Header::load_from_reader(r)?),
-                bmi_colors: Vec::<RGBQuad>::new(),
-            }));
-        } else if size == BMP_V5_INFO_HEADER_SIZE {
-            return Ok(BMPGenericInfo::Info(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::V5Info(BMPV5Header::load_from_reader(r)?),
-                bmi_colors: Vec::<RGBQuad>::new(),
-            }));
-        }
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Unknown info header, size={} bytes", size),
-        ))
-    }
-}
-
-#[derive(Debug)]
-pub struct BMPCoreInfo {
-    /// A BITMAPCOREHEADER structure that contains information about the dimensions and color format of a DIB.
-    bmci_header: BMPCoreHeader,
-    /// Specifies an array of RGBTRIPLE structures that define the colors in the bitmap
-    bmci_colors: Vec<RGBTriple>,
-}
-
-#[derive(Debug)]
-pub struct BMPCoreHeader {
-    /// The number of bytes required by the structure
-    bc_size: i32,
-    /// The width of the bitmap, in pixels
-    bc_width: i16,
-    /// The height of the bitmap, in pixels
-    bc_height: i16,
-    /// The number of planes for the target device. This value must be 1
-    bc_planes: i16,
-    /// The number of bits-per-pixel. This value must be 1, 4, 8, or 24.
-    bc_bit_count: i16,
-}
-
-impl BMPCoreHeader {
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPCoreHeader, io::Error> {
-        Ok(BMPCoreHeader {
-            bc_size: r.read_i32::<LittleEndian>()?,
-            bc_width: r.read_i16::<LittleEndian>()?,
-            bc_height: r.read_i16::<LittleEndian>()?,
-            bc_planes: r.read_i16::<LittleEndian>()?,
-            bc_bit_count: r.read_i16::<LittleEndian>()?,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct RGBTriple {
-    rgbt_blue: u8,
-    rgbt_green: u8,
-    rgbt_red: u8,
-}
-
-#[derive(Debug)]
 pub enum BMPGenericInfoHeader {
     Info(BMPInfoHeader),
     V4Info(BMPV4Header),
@@ -222,6 +151,91 @@ pub struct BMPInfo {
     bmi_header: BMPGenericInfoHeader,
     /// An array of RGBQUAD. The elements of the array that make up the color table.
     bmi_colors: Vec<RGBQuad>,
+}
+
+impl BMPInfo {
+    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPInfo, io::Error> {
+        let mut f = BufReader::new(File::open(p)?);
+        BMPInfo::load_from_reader(&mut f)
+    }
+    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPInfo, io::Error> {
+        // skip file header
+        r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
+        let size = r.read_i32::<LittleEndian>()?;
+        r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
+
+        if size == BMP_INFO_HEADER_SIZE {
+            return Ok(BMPInfo {
+                bmi_header: BMPGenericInfoHeader::Info(BMPInfoHeader::load_from_reader(r)?),
+                bmi_colors: Vec::<RGBQuad>::new(),
+            });
+        } else if size == BMP_V4_INFO_HEADER_SIZE {
+            return Ok(BMPInfo {
+                bmi_header: BMPGenericInfoHeader::V4Info(BMPV4Header::load_from_reader(r)?),
+                bmi_colors: Vec::<RGBQuad>::new(),
+            });
+        } else if size == BMP_V5_INFO_HEADER_SIZE {
+            return Ok(BMPInfo {
+                bmi_header: BMPGenericInfoHeader::V5Info(BMPV5Header::load_from_reader(r)?),
+                bmi_colors: Vec::<RGBQuad>::new(),
+            });
+        }
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Unknown info header, size={} bytes", size),
+        ))
+    }
+}
+
+impl fmt::Display for BMPInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let struct_type: &str;
+        let os_support: &str;
+        let width: i32;
+        let height: i32;
+        let colors: i32;
+        let bpp: i16;
+        match self.bmi_header {
+            BMPGenericInfoHeader::Info(ref info) => {
+                struct_type = "BMPInfoHeader";
+                os_support = "Windows NT, 3.1x or later";
+                width = info.bi_width;
+                height = info.bi_height;
+                colors = info.bi_clr_used;
+                bpp = info.bi_bit_count;
+            }
+            BMPGenericInfoHeader::V4Info(ref info) => {
+                struct_type = "BMPV4Header";
+                os_support = "Windows NT 4.0, 95 or later";
+                width = info.bv4_width;
+                height = info.bv4_height;
+                colors = info.bv4_clr_used;
+                bpp = info.bv4_bit_count;
+            }
+            BMPGenericInfoHeader::V5Info(ref info) => {
+                struct_type = "BMPV5Header";
+                os_support = "Windows NT 5.0, 98 or later";
+                width = info.bv5_width;
+                height = info.bv5_height;
+                colors = info.bv5_clr_used;
+                bpp = info.bv5_bit_count;
+            }
+        };
+        write!(
+            f,
+            "Info type: {}\n\
+             OS support: {}\n\
+             Width: {} px\nHeight: {} px\nColor table size: {}\n\
+             Bit Per Pixel: {}\nMax Colors: {}",
+            struct_type,
+            os_support,
+            width,
+            height,
+            colors,
+            bpp,
+            2u64.pow(bpp as u32),
+        )
+    }
 }
 
 #[derive(Debug)]

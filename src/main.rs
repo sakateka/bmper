@@ -9,8 +9,10 @@ pub fn main() {
     if let Some(matches) = app.subcommand_matches("meta") {
         let filename = matches.value_of("FILE").unwrap();
         println!("Info from file {:?}", filename);
-        let bmp_info = bmp::BMPImage::load_from_file(filename);
-        println!("{:?}", bmp_info);
+        match bmp::BMPImage::load_from_file(filename) {
+            Ok(bmp_info) => println!("{}", bmp_info),
+            Err(e) => println!("{:?}", e),
+        }
     }
 }
 
