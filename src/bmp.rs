@@ -2,7 +2,7 @@
 //! The format for a DIB is the following (for more information, see Bitmap Storage ):
 //!   * a BITMAPFILEHEADER structure
 //!   * either a BITMAPINFOHEADER, a BITMAPV4HEADER, or a BITMAPV5HEADER structure.
-//!   * an optional color table, which is either a set of RGBQUAD structures
+//!   * an optional color table, which is a set of RGBQUAD structures
 //!   * the bitmap data
 //!   * optional Profile data
 //! A color table describes how pixel values correspond to RGB color values.
@@ -19,28 +19,28 @@ use std::fmt;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
-use byteorder::{LittleEndian, ReadBytesExt};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 /// An uncompressed format.
-pub const BI_RGB: i16 = 0;
+pub const BI_RGB: i32 = 0;
 /// A run-length encoded (RLE) format for bitmaps with 8 bpp.
 /// The compression format is a 2-byte format consisting of a count byte
 /// followed by a byte containing a color index. For more information.
-pub const BI_RLE8: i16 = 1;
+pub const BI_RLE8: i32 = 1;
 /// An RLE format for bitmaps with 4 bpp.
 /// The compression format is a 2-byte format consisting of a count byte
 /// followed by two word-length color indexes. For more information.
-pub const BI_RLE4: i16 = 2;
+pub const BI_RLE4: i32 = 2;
 /// Specifies that the bitmap is not compressed and that the color table
 /// consists of three DWORD color masks that specify
 /// the red, green, and blue components, respectively, of each pixel.
 /// This is valid when used with 16- and 32-bpp bitmaps.
-pub const BI_BITFIELDS: i16 = 3;
+pub const BI_BITFIELDS: i32 = 3;
 /// Indicates that the image is a JPEG image.
-pub const BI_JPEG: i16 = 4;
+pub const BI_JPEG: i32 = 4;
 ///  Indicates that the image is a PNG image.
-pub const BI_PNG: i16 = 5;
+pub const BI_PNG: i32 = 5;
 
 pub const BMP_FILE_HEADER_SIZE: u64 = 14;
 pub const BMP_INFO_HEADER_SIZE: i32 = 40;
@@ -49,8 +49,8 @@ pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 
 #[derive(Debug)]
 pub struct BMPImage {
-    header: BMPFileHeader,
-    info: BMPInfo,
+    pub header: BMPFileHeader,
+    pub info: BMPInfo,
     bitmap: Vec<u8>,
 }
 
@@ -81,6 +81,23 @@ impl BMPImage {
             info: info.unwrap(),
             bitmap: Vec::new(),
         })
+    }
+    pub fn load_meta_and_bitmap<P: AsRef<Path>>(p: P) -> Result<BMPImage, io::Error> {
+        let mut f = BufReader::new(File::open(p)?);
+        let mut image = BMPImage::load_from_reader(&mut f)?;
+        image.bitmap = vec![0u8; image.info.bmi_header.get_bitmap_size() as usize];
+        f.read_exact(&mut image.bitmap)?;
+        Ok(image)
+    }
+    pub fn grayscale(&self) {
+        ()
+    }
+    pub fn save_to_file<P: AsRef<Path>>(&self, p: P) -> Result<usize, io::Error> {
+        let mut f = BufWriter::new(File::create(p)?);
+        self.header.save_to_writer(&mut f)?;
+        self.info.save_to_writer(&mut f)?;
+        f.write_all(&self.bitmap)?;
+        Ok(0 as usize)
     }
 }
 
@@ -117,9 +134,7 @@ impl BMPFileHeader {
         let mut f = BufReader::new(File::open(p)?);
         BMPFileHeader::load_from_reader(&mut f)
     }
-    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(
-        r: &mut R,
-    ) -> Result<BMPFileHeader, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPFileHeader, io::Error> {
         let mut sig = [0u8; 2];
         try!(r.read_exact(&mut sig));
         if &sig != b"BM" {
@@ -129,12 +144,20 @@ impl BMPFileHeader {
             ));
         }
         Ok(BMPFileHeader {
-            bf_type: ((sig[0] as i16) << 8) + (sig[1] as i16),
+            bf_type: ((sig[1] as i16) << 8) + (sig[0] as i16),
             bf_size: r.read_i32::<LittleEndian>()?,
             bf_reserved1: r.read_i16::<LittleEndian>()?,
             bf_reserved2: r.read_i16::<LittleEndian>()?,
             bf_offset_bits: r.read_i32::<LittleEndian>()?,
         })
+    }
+
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        w.write_i16::<LittleEndian>(self.bf_type)?;
+        w.write_i32::<LittleEndian>(self.bf_size)?;
+        w.write_i32::<LittleEndian>(0i32)?; // reserved1 and reserved2
+        w.write_i32::<LittleEndian>(self.bf_offset_bits)?;
+        Ok(())
     }
 }
 
@@ -145,10 +168,41 @@ pub enum BMPGenericInfoHeader {
     V5Info(BMPV5Header),
 }
 
+impl BMPGenericInfoHeader {
+    pub fn get_width(&self) -> i32 {
+        match self {
+            &BMPGenericInfoHeader::Info(ref i) => i.bi_width,
+            &BMPGenericInfoHeader::V4Info(ref i) => i.bv4_width,
+            &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_width,
+        }
+    }
+    pub fn get_height(&self) -> i32 {
+        match self {
+            &BMPGenericInfoHeader::Info(ref i) => i.bi_height,
+            &BMPGenericInfoHeader::V4Info(ref i) => i.bv4_height,
+            &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_height,
+        }
+    }
+    pub fn get_bit_count(&self) -> i16 {
+        match self {
+            &BMPGenericInfoHeader::Info(ref i) => i.bi_bit_count,
+            &BMPGenericInfoHeader::V4Info(ref i) => i.bv4_bit_count,
+            &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_bit_count,
+        }
+    }
+    pub fn get_bitmap_size(&self) -> i32 {
+        match self {
+            &BMPGenericInfoHeader::Info(ref i) => i.bi_size_image,
+            &BMPGenericInfoHeader::V4Info(ref i) => i.bv4_size_image,
+            &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_size_image,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BMPInfo {
     /// A BITMAPINFOHEADER structure that contains information about the dimensions of color format.
-    bmi_header: BMPGenericInfoHeader,
+    pub bmi_header: BMPGenericInfoHeader,
     /// An array of RGBQUAD. The elements of the array that make up the color table.
     bmi_colors: Vec<RGBQuad>,
 }
@@ -164,26 +218,55 @@ impl BMPInfo {
         let size = r.read_i32::<LittleEndian>()?;
         r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
 
-        if size == BMP_INFO_HEADER_SIZE {
-            return Ok(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::Info(BMPInfoHeader::load_from_reader(r)?),
-                bmi_colors: Vec::<RGBQuad>::new(),
-            });
-        } else if size == BMP_V4_INFO_HEADER_SIZE {
-            return Ok(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::V4Info(BMPV4Header::load_from_reader(r)?),
-                bmi_colors: Vec::<RGBQuad>::new(),
-            });
-        } else if size == BMP_V5_INFO_HEADER_SIZE {
-            return Ok(BMPInfo {
-                bmi_header: BMPGenericInfoHeader::V5Info(BMPV5Header::load_from_reader(r)?),
-                bmi_colors: Vec::<RGBQuad>::new(),
-            });
+        let header = match size {
+            BMP_INFO_HEADER_SIZE => BMPGenericInfoHeader::Info(BMPInfoHeader::load_from_reader(r)?),
+            BMP_V4_INFO_HEADER_SIZE => {
+                BMPGenericInfoHeader::V4Info(BMPV4Header::load_from_reader(r)?)
+            }
+            BMP_V5_INFO_HEADER_SIZE => {
+                BMPGenericInfoHeader::V5Info(BMPV5Header::load_from_reader(r)?)
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Unknown info header, size={} bytes", size),
+                ));
+            }
+        };
+        let mut colors = Vec::<RGBQuad>::new();
+        if header.get_bit_count() < 16 {
+            let palette_len = 2u64.pow(header.get_bit_count() as u32);
+            for _ in 0..palette_len {
+                colors.push(RGBQuad::load_from_reader(r)?);
+            }
         }
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Unknown info header, size={} bytes", size),
-        ))
+        Ok(BMPInfo {
+            bmi_header: header,
+            bmi_colors: colors,
+        })
+    }
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        match self.bmi_header {
+            BMPGenericInfoHeader::Info(ref info) => info.save_to_writer(w)?,
+            BMPGenericInfoHeader::V4Info(ref info) => info.save_to_writer(w)?,
+            BMPGenericInfoHeader::V5Info(ref info) => info.save_to_writer(w)?,
+        };
+        for c in &self.bmi_colors {
+            c.save_to_writer(w)?;
+        }
+        Ok(())
+    }
+}
+
+fn get_compression_type(t: i32) -> String {
+    match t {
+        BI_RGB => format!("BI_RGB"),
+        BI_RLE8 => format!("BI_RLE8"),
+        BI_RLE4 => format!("BI_RLE4"),
+        BI_BITFIELDS => format!("BI_BITFIELDS"),
+        BI_JPEG => format!("BI_JPEG"),
+        BI_PNG => format!("BI_PNG"),
+        _ => format!("Unknown"),
     }
 }
 
@@ -191,6 +274,7 @@ impl fmt::Display for BMPInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let struct_type: &str;
         let os_support: &str;
+        let compression: String;
         let width: i32;
         let height: i32;
         let colors: i32;
@@ -199,6 +283,7 @@ impl fmt::Display for BMPInfo {
             BMPGenericInfoHeader::Info(ref info) => {
                 struct_type = "BMPInfoHeader";
                 os_support = "Windows NT, 3.1x or later";
+                compression = get_compression_type(info.bi_compression);
                 width = info.bi_width;
                 height = info.bi_height;
                 colors = info.bi_clr_used;
@@ -207,6 +292,7 @@ impl fmt::Display for BMPInfo {
             BMPGenericInfoHeader::V4Info(ref info) => {
                 struct_type = "BMPV4Header";
                 os_support = "Windows NT 4.0, 95 or later";
+                compression = get_compression_type(info.bv4_v4_compression);
                 width = info.bv4_width;
                 height = info.bv4_height;
                 colors = info.bv4_clr_used;
@@ -215,24 +301,33 @@ impl fmt::Display for BMPInfo {
             BMPGenericInfoHeader::V5Info(ref info) => {
                 struct_type = "BMPV5Header";
                 os_support = "Windows NT 5.0, 98 or later";
+                compression = get_compression_type(info.bv5_compression);
                 width = info.bv5_width;
                 height = info.bv5_height;
                 colors = info.bv5_clr_used;
                 bpp = info.bv5_bit_count;
             }
         };
+        let mut colors_table_size = String::from("");
+        if bpp < 16 {
+            colors_table_size = format!("Colors used: {}\n", colors);
+        }
         write!(
             f,
             "Info type: {}\n\
              OS support: {}\n\
-             Width: {} px\nHeight: {} px\nColor table size: {}\n\
-             Bit Per Pixel: {}\nMax Colors: {}",
+             Compression: {}\n\
+             Width: {} px\nHeight: {} px\n\
+             Bit Per Pixel: {}\n\
+             {}\
+             Max Colors: {}",
             struct_type,
             os_support,
+            compression,
             width,
             height,
-            colors,
             bpp,
+            colors_table_size,
             2u64.pow(bpp as u32),
         )
     }
@@ -279,15 +374,47 @@ impl BMPInfoHeader {
             bi_clr_important: r.read_i32::<LittleEndian>()?,
         })
     }
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        w.write_i32::<LittleEndian>(self.bi_size)?;
+        w.write_i32::<LittleEndian>(self.bi_width)?;
+        w.write_i32::<LittleEndian>(self.bi_height)?;
+        w.write_i16::<LittleEndian>(self.bi_planes)?;
+        w.write_i16::<LittleEndian>(self.bi_bit_count)?;
+        w.write_i32::<LittleEndian>(self.bi_compression)?;
+        w.write_i32::<LittleEndian>(self.bi_size_image)?;
+        w.write_i32::<LittleEndian>(self.bi_x_pels_per_meter)?;
+        w.write_i32::<LittleEndian>(self.bi_y_pels_per_meter)?;
+        w.write_i32::<LittleEndian>(self.bi_clr_used)?;
+        w.write_i32::<LittleEndian>(self.bi_clr_important)?;
+        Ok(())
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct RGBQuad {
     rgb_blue: u8,
     rgb_green: u8,
     rgb_red: u8,
     /// This member is reserved and must be zero
     rgb_reserved: u8,
+}
+
+impl RGBQuad {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<RGBQuad, io::Error> {
+        Ok(RGBQuad {
+            rgb_blue: r.read_u8()?,
+            rgb_green: r.read_u8()?,
+            rgb_red: r.read_u8()?,
+            rgb_reserved: r.read_u8()?,
+        })
+    }
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        w.write_u8(self.rgb_blue)?;
+        w.write_u8(self.rgb_green)?;
+        w.write_u8(self.rgb_red)?;
+        w.write_u8(self.rgb_reserved)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -339,6 +466,29 @@ impl BMPV4Header {
             bv4_gamma_blue: r.read_i32::<LittleEndian>()?,
         })
     }
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        w.write_i32::<LittleEndian>(self.bv4_size)?;
+        w.write_i32::<LittleEndian>(self.bv4_width)?;
+        w.write_i32::<LittleEndian>(self.bv4_height)?;
+        w.write_i16::<LittleEndian>(self.bv4_planes)?;
+        w.write_i16::<LittleEndian>(self.bv4_bit_count)?;
+        w.write_i32::<LittleEndian>(self.bv4_v4_compression)?;
+        w.write_i32::<LittleEndian>(self.bv4_size_image)?;
+        w.write_i32::<LittleEndian>(self.bv4_x_pels_per_meter)?;
+        w.write_i32::<LittleEndian>(self.bv4_y_pels_per_meter)?;
+        w.write_i32::<LittleEndian>(self.bv4_clr_used)?;
+        w.write_i32::<LittleEndian>(self.bv4_clr_important)?;
+        w.write_i32::<LittleEndian>(self.bv4_red_mask)?;
+        w.write_i32::<LittleEndian>(self.bv4_green_mask)?;
+        w.write_i32::<LittleEndian>(self.bv4_blue_mask)?;
+        w.write_i32::<LittleEndian>(self.bv4_alpha_mask)?;
+        w.write_i32::<LittleEndian>(self.bv4_cs_type)?;
+        self.bv4_endpoints.save_to_writer(w)?;
+        w.write_i32::<LittleEndian>(self.bv4_gamma_red)?;
+        w.write_i32::<LittleEndian>(self.bv4_gamma_green)?;
+        w.write_i32::<LittleEndian>(self.bv4_gamma_blue)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -354,6 +504,12 @@ impl CIEXYZTriple {
             ciexyz_green: CIEXYZ::load_from_reader(r)?,
             ciexyz_blue: CIEXYZ::load_from_reader(r)?,
         })
+    }
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        self.ciexyz_red.save_to_writer(w)?;
+        self.ciexyz_green.save_to_writer(w)?;
+        self.ciexyz_blue.save_to_writer(w)?;
+        Ok(())
     }
 }
 
@@ -372,6 +528,12 @@ impl CIEXYZ {
             ciexyz_y: r.read_u32::<LittleEndian>()?,
             ciexyz_z: r.read_u32::<LittleEndian>()?,
         })
+    }
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        w.write_u32::<LittleEndian>(self.ciexyz_x)?;
+        w.write_u32::<LittleEndian>(self.ciexyz_y)?;
+        w.write_u32::<LittleEndian>(self.ciexyz_z)?;
+        Ok(())
     }
 }
 
@@ -431,5 +593,32 @@ impl BMPV5Header {
             bv5_profile_size: r.read_i32::<LittleEndian>()?,
             bv5_reserved: r.read_i32::<LittleEndian>()?,
         })
+    }
+    pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
+        w.write_i32::<LittleEndian>(self.bv5_size)?;
+        w.write_i32::<LittleEndian>(self.bv5_width)?;
+        w.write_i32::<LittleEndian>(self.bv5_height)?;
+        w.write_i16::<LittleEndian>(self.bv5_planes)?;
+        w.write_i16::<LittleEndian>(self.bv5_bit_count)?;
+        w.write_i32::<LittleEndian>(self.bv5_compression)?;
+        w.write_i32::<LittleEndian>(self.bv5_size_image)?;
+        w.write_i32::<LittleEndian>(self.bv5_x_pels_per_meter)?;
+        w.write_i32::<LittleEndian>(self.bv5_y_pels_per_meter)?;
+        w.write_i32::<LittleEndian>(self.bv5_clr_used)?;
+        w.write_i32::<LittleEndian>(self.bv5_clr_important)?;
+        w.write_i32::<LittleEndian>(self.bv5_red_mask)?;
+        w.write_i32::<LittleEndian>(self.bv5_green_mask)?;
+        w.write_i32::<LittleEndian>(self.bv5_blue_mask)?;
+        w.write_i32::<LittleEndian>(self.bv5_alpha_mask)?;
+        w.write_i32::<LittleEndian>(self.bv5_cs_type)?;
+        self.bv5_endpoints.save_to_writer(w)?;
+        w.write_i32::<LittleEndian>(self.bv5_gamma_red)?;
+        w.write_i32::<LittleEndian>(self.bv5_gamma_green)?;
+        w.write_i32::<LittleEndian>(self.bv5_gamma_blue)?;
+        w.write_i32::<LittleEndian>(self.bv5_intent)?;
+        w.write_i32::<LittleEndian>(self.bv5_profile_data)?;
+        w.write_i32::<LittleEndian>(self.bv5_profile_size)?;
+        w.write_i32::<LittleEndian>(self.bv5_reserved)?;
+        Ok(())
     }
 }

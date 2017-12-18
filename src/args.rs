@@ -8,6 +8,7 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
         .subcommand(
             SubCommand::with_name("meta")
                 .about("Show image metadata")
+                .arg(Arg::with_name("raw").long("raw").help("print raw metadata"))
                 .arg(
                     Arg::with_name("FILE")
                         .help("Image file to parse")
