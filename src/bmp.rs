@@ -140,12 +140,42 @@ impl BMPImage {
             quad.rgb_blue = average as u8;
         }
     }
+    pub fn border(&mut self, width: u32) {
+        self.encode_bitmap();
+    }
     pub fn save_to_file<P: AsRef<Path>>(&self, p: P) -> Result<usize, io::Error> {
         let mut f = BufWriter::new(File::create(p)?);
         self.header.save_to_writer(&mut f)?;
         self.info.save_to_writer(&mut f)?;
         f.write_all(&self.bitmap)?;
         Ok(0 as usize)
+    }
+
+    pub fn encode_bitmap(&mut self) {
+        self.bitmap = match self.info.bmi_header.get_compression_type() {
+            BMPCompression::RGB => return,
+            BMPCompression::RLE8 => self.decode_rle8(),
+            BMPCompression::RLE4 => self.decode_rle4(),
+            BMPCompression::BITFIELDS => self.decode_bitfields(),
+            BMPCompression::JPEG => self.decode_jpeg(),
+            BMPCompression::PNG => self.decode_png(),
+        };
+    }
+
+    fn decode_rle8(&self) -> Vec<u8> {
+        Vec::new()
+    }
+    fn decode_rle4(&self) -> Vec<u8> {
+        Vec::new()
+    }
+    fn decode_bitfields(&self) -> Vec<u8> {
+        unimplemented!()
+    }
+    fn decode_jpeg(&self) -> Vec<u8> {
+        unimplemented!()
+    }
+    fn decode_png(&self) -> Vec<u8> {
+        unimplemented!()
     }
 }
 
