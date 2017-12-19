@@ -23,6 +23,7 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
         )
         .subcommand(
             SubCommand::with_name("grayscale")
+            .about("Grayscale BMP image with palette")
                 .arg(
                     Arg::with_name("SRC")
                         .help("Source image file")
