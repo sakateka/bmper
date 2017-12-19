@@ -196,11 +196,15 @@ impl BMPGenericInfoHeader {
         }
     }
     pub fn get_bitmap_size(&self) -> i32 {
-        match self {
+        let mut size = match self {
             &BMPGenericInfoHeader::Info(ref i) => i.bi_size_image,
             &BMPGenericInfoHeader::V4Info(ref i) => i.bv4_size_image,
             &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_size_image,
-        }
+        };
+        if size == 0 {
+            size = self.get_width() * self.get_height() * self.get_bit_count() as i32 / 8
+        };
+        size
     }
 }
 
