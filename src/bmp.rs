@@ -89,8 +89,13 @@ impl BMPImage {
         f.read_exact(&mut image.bitmap)?;
         Ok(image)
     }
-    pub fn grayscale(&self) {
-        ()
+    pub fn grayscale(&mut self) {
+        for quad in &mut self.info.bmi_colors {
+            let average = (quad.rgb_red as u32 + quad.rgb_green as u32 + quad.rgb_blue as u32) / 3;
+            quad.rgb_red = average as u8;
+            quad.rgb_green = average as u8;
+            quad.rgb_blue = average as u8;
+        }
     }
     pub fn save_to_file<P: AsRef<Path>>(&self, p: P) -> Result<usize, io::Error> {
         let mut f = BufWriter::new(File::create(p)?);
@@ -204,7 +209,7 @@ pub struct BMPInfo {
     /// A BITMAPINFOHEADER structure that contains information about the dimensions of color format.
     pub bmi_header: BMPGenericInfoHeader,
     /// An array of RGBQUAD. The elements of the array that make up the color table.
-    bmi_colors: Vec<RGBQuad>,
+    pub bmi_colors: Vec<RGBQuad>,
 }
 
 impl BMPInfo {

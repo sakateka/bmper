@@ -10,6 +10,11 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
                 .about("Show image metadata")
                 .arg(Arg::with_name("raw").long("raw").help("print raw metadata"))
                 .arg(
+                    Arg::with_name("colors")
+                        .long("colors")
+                        .help("print colors table"),
+                )
+                .arg(
                     Arg::with_name("FILE")
                         .help("Image file to parse")
                         .required(true)

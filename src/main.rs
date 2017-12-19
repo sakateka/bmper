@@ -16,16 +16,18 @@ pub fn main() {
                 } else {
                     println!("{}", bmp_info);
                 }
-            },
+                if matches.is_present("colors") {
+                    println!("{:?}", bmp_info.info.bmi_colors);
+                }
+            }
             Err(e) => println!("{:?}", e),
         }
     }
     if let Some(matches) = app.subcommand_matches("grayscale") {
         let src = matches.value_of("SRC").unwrap();
         let dst = matches.value_of("DST").unwrap();
-        let image = bmp::BMPImage::load_meta_and_bitmap(src).unwrap();
+        let mut image = bmp::BMPImage::load_meta_and_bitmap(src).unwrap();
         image.grayscale();
-        println!("{}\nSRC: {} -> DST {}", image.info, src, dst);
         image.save_to_file(dst).unwrap();
     }
 }
