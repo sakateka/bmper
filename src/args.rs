@@ -11,6 +11,7 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
                 .arg(Arg::with_name("raw").long("raw").help("print raw metadata"))
                 .arg(
                     Arg::with_name("colors")
+                        .short("c")
                         .long("colors")
                         .help("print colors table"),
                 )
@@ -23,7 +24,29 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
         )
         .subcommand(
             SubCommand::with_name("grayscale")
-            .about("Grayscale BMP image with palette")
+                .about("Grayscale BMP image with palette")
+                .arg(
+                    Arg::with_name("SRC")
+                        .help("Source image file")
+                        .required(true)
+                        .index(1),
+                )
+                .arg(
+                    Arg::with_name("DST")
+                        .help("Destination image file")
+                        .required(true)
+                        .index(2),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("border")
+                .about("Add a border of random pixels")
+                .arg(
+                    Arg::with_name("width")
+                        .short("w")
+                        .long("width")
+                        .help("border width (pixels)"),
+                )
                 .arg(
                     Arg::with_name("SRC")
                         .help("Source image file")

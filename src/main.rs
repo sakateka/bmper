@@ -22,13 +22,14 @@ pub fn main() {
             }
             Err(e) => println!("{:?}", e),
         }
-    }
-    if let Some(matches) = app.subcommand_matches("grayscale") {
+    } else if let Some(matches) = app.subcommand_matches("grayscale") {
         let src = matches.value_of("SRC").unwrap();
         let dst = matches.value_of("DST").unwrap();
         let mut image = bmp::BMPImage::load_meta_and_bitmap(src).unwrap();
         image.grayscale();
         image.save_to_file(dst).unwrap();
+    } else if let Some(matches) = app.subcommand_matches("border") {
+        println!("Draw border!");
     }
 }
 

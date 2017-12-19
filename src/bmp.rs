@@ -22,25 +22,68 @@ use std::path::Path;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-/// An uncompressed format.
-pub const BI_RGB: i32 = 0;
-/// A run-length encoded (RLE) format for bitmaps with 8 bpp.
-/// The compression format is a 2-byte format consisting of a count byte
-/// followed by a byte containing a color index. For more information.
-pub const BI_RLE8: i32 = 1;
-/// An RLE format for bitmaps with 4 bpp.
-/// The compression format is a 2-byte format consisting of a count byte
-/// followed by two word-length color indexes. For more information.
-pub const BI_RLE4: i32 = 2;
-/// Specifies that the bitmap is not compressed and that the color table
-/// consists of three DWORD color masks that specify
-/// the red, green, and blue components, respectively, of each pixel.
-/// This is valid when used with 16- and 32-bpp bitmaps.
-pub const BI_BITFIELDS: i32 = 3;
-/// Indicates that the image is a JPEG image.
-pub const BI_JPEG: i32 = 4;
-///  Indicates that the image is a PNG image.
-pub const BI_PNG: i32 = 5;
+#[derive(Debug, Copy, Clone)]
+pub enum BMPCompression {
+    /// An uncompressed format.
+    RGB,
+    /// A run-length encoded (RLE) format for bitmaps with 8 bpp.
+    /// The compression format is a 2-byte format consisting of a count byte
+    /// followed by a byte containing a color index.
+    RLE8,
+    /// An RLE format for bitmaps with 4 bpp.
+    /// The compression format is a 2-byte format consisting of a count byte
+    /// followed by two word-length color indexes.
+    RLE4,
+    /// Specifies that the bitmap is not compressed and that the color table
+    /// consists of three DWORD color masks that specify
+    /// the red, green, and blue components, respectively, of each pixel.
+    /// This is valid when used with 16- and 32-bpp bitmaps.
+    BITFIELDS,
+    /// Indicates that the image is a JPEG image.
+    JPEG,
+    ///  Indicates that the image is a PNG image.
+    PNG,
+}
+
+impl fmt::Display for BMPCompression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match *self {
+            BMPCompression::RGB => "Uncompressed",
+            BMPCompression::RLE8 => "Run-Length Encoded (RLE) with 8 bpp",
+            BMPCompression::RLE4 => "Run-Length Encoded (RLE) with 4 bpp",
+            BMPCompression::BITFIELDS => "Uncompressed bitfields",
+            BMPCompression::JPEG => "Bitmap is JPEG image",
+            BMPCompression::PNG => "Bitmap is PNG image",
+        })
+    }
+}
+
+impl BMPCompression {
+    pub fn from_bytes(b: i32) -> Result<BMPCompression, io::Error> {
+        match b {
+            0 => Ok(BMPCompression::RGB),
+            1 => Ok(BMPCompression::RLE8),
+            2 => Ok(BMPCompression::RLE4),
+            3 => Ok(BMPCompression::BITFIELDS),
+            4 => Ok(BMPCompression::JPEG),
+            5 => Ok(BMPCompression::PNG),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Unsupported compression format: {}", b),
+            )),
+        }
+    }
+    pub fn to_bytes(t: &BMPCompression) -> i32 {
+        match t {
+            &BMPCompression::RGB => 0,
+            &BMPCompression::RLE8 => 1,
+            &BMPCompression::RLE4 => 2,
+            &BMPCompression::BITFIELDS => 3,
+            &BMPCompression::JPEG => 4,
+            &BMPCompression::PNG => 5,
+        }
+    }
+}
 
 pub const BMP_FILE_HEADER_SIZE: u64 = 14;
 pub const BMP_INFO_HEADER_SIZE: i32 = 40;
@@ -195,6 +238,20 @@ impl BMPGenericInfoHeader {
             &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_bit_count,
         }
     }
+    pub fn get_compression_type(&self) -> BMPCompression {
+        match self {
+            &BMPGenericInfoHeader::Info(ref i) => i.bi_compression,
+            &BMPGenericInfoHeader::V4Info(ref i) => i.bv4_v4_compression,
+            &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_compression,
+        }
+    }
+    pub fn get_colors_used(&self) -> i32 {
+        match self {
+            &BMPGenericInfoHeader::Info(ref i) => i.bi_clr_used,
+            &BMPGenericInfoHeader::V4Info(ref i) => i.bv4_clr_used,
+            &BMPGenericInfoHeader::V5Info(ref i) => i.bv5_clr_used,
+        }
+    }
     pub fn get_bitmap_size(&self) -> i32 {
         let mut size = match self {
             &BMPGenericInfoHeader::Info(ref i) => i.bi_size_image,
@@ -205,6 +262,20 @@ impl BMPGenericInfoHeader {
             size = self.get_width() * self.get_height() * self.get_bit_count() as i32 / 8
         };
         size
+    }
+    pub fn get_type(&self) -> &'static str {
+        match self {
+            &BMPGenericInfoHeader::Info(_) => "BMPInfoHeader",
+            &BMPGenericInfoHeader::V4Info(_) => "BMPV4Header",
+            &BMPGenericInfoHeader::V5Info(_) => "BMPV5Header",
+        }
+    }
+    pub fn get_os_support(&self) -> &'static str {
+        match *self {
+            BMPGenericInfoHeader::Info(_) => "Windows NT, 3.1x or later",
+            BMPGenericInfoHeader::V4Info(_) => "Windows NT 4.0, 95 or later",
+            BMPGenericInfoHeader::V5Info(_) => "Windows NT 5.0, 98 or later",
+        }
     }
 }
 
@@ -267,60 +338,8 @@ impl BMPInfo {
     }
 }
 
-fn get_compression_type(t: i32) -> String {
-    match t {
-        BI_RGB => format!("BI_RGB"),
-        BI_RLE8 => format!("BI_RLE8"),
-        BI_RLE4 => format!("BI_RLE4"),
-        BI_BITFIELDS => format!("BI_BITFIELDS"),
-        BI_JPEG => format!("BI_JPEG"),
-        BI_PNG => format!("BI_PNG"),
-        _ => format!("Unknown"),
-    }
-}
-
 impl fmt::Display for BMPInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let struct_type: &str;
-        let os_support: &str;
-        let compression: String;
-        let width: i32;
-        let height: i32;
-        let colors: i32;
-        let bpp: i16;
-        match self.bmi_header {
-            BMPGenericInfoHeader::Info(ref info) => {
-                struct_type = "BMPInfoHeader";
-                os_support = "Windows NT, 3.1x or later";
-                compression = get_compression_type(info.bi_compression);
-                width = info.bi_width;
-                height = info.bi_height;
-                colors = info.bi_clr_used;
-                bpp = info.bi_bit_count;
-            }
-            BMPGenericInfoHeader::V4Info(ref info) => {
-                struct_type = "BMPV4Header";
-                os_support = "Windows NT 4.0, 95 or later";
-                compression = get_compression_type(info.bv4_v4_compression);
-                width = info.bv4_width;
-                height = info.bv4_height;
-                colors = info.bv4_clr_used;
-                bpp = info.bv4_bit_count;
-            }
-            BMPGenericInfoHeader::V5Info(ref info) => {
-                struct_type = "BMPV5Header";
-                os_support = "Windows NT 5.0, 98 or later";
-                compression = get_compression_type(info.bv5_compression);
-                width = info.bv5_width;
-                height = info.bv5_height;
-                colors = info.bv5_clr_used;
-                bpp = info.bv5_bit_count;
-            }
-        };
-        let mut colors_table_size = String::from("");
-        if bpp < 16 {
-            colors_table_size = format!("Colors used: {}\n", colors);
-        }
         write!(
             f,
             "Info type: {}\n\
@@ -330,14 +349,18 @@ impl fmt::Display for BMPInfo {
              Bit Per Pixel: {}\n\
              {}\
              Max Colors: {}",
-            struct_type,
-            os_support,
-            compression,
-            width,
-            height,
-            bpp,
-            colors_table_size,
-            2u64.pow(bpp as u32),
+            self.bmi_header.get_type(),
+            self.bmi_header.get_os_support(),
+            self.bmi_header.get_compression_type(),
+            self.bmi_header.get_width(),
+            self.bmi_header.get_height(),
+            self.bmi_header.get_bit_count(),
+            if self.bmi_header.get_bit_count() < 16 {
+                format!("Colors used: {}\n", self.bmi_header.get_colors_used())
+            } else {
+                String::new()
+            },
+            2u64.pow(self.bmi_header.get_bit_count() as u32),
         )
     }
 }
@@ -355,7 +378,7 @@ pub struct BMPInfoHeader {
     /// The number of bits-per-pixel
     bi_bit_count: i16,
     /// The type of compression for a compressed bottom-up bitmap
-    bi_compression: i32,
+    bi_compression: BMPCompression,
     /// The size, in bytes, of the image
     bi_size_image: i32,
     /// The horizontal resolution, in pixels-per-meter
@@ -375,7 +398,7 @@ impl BMPInfoHeader {
             bi_height: r.read_i32::<LittleEndian>()?,
             bi_planes: r.read_i16::<LittleEndian>()?,
             bi_bit_count: r.read_i16::<LittleEndian>()?,
-            bi_compression: r.read_i32::<LittleEndian>()?,
+            bi_compression: BMPCompression::from_bytes(r.read_i32::<LittleEndian>()?)?,
             bi_size_image: r.read_i32::<LittleEndian>()?,
             bi_x_pels_per_meter: r.read_i32::<LittleEndian>()?,
             bi_y_pels_per_meter: r.read_i32::<LittleEndian>()?,
@@ -389,7 +412,7 @@ impl BMPInfoHeader {
         w.write_i32::<LittleEndian>(self.bi_height)?;
         w.write_i16::<LittleEndian>(self.bi_planes)?;
         w.write_i16::<LittleEndian>(self.bi_bit_count)?;
-        w.write_i32::<LittleEndian>(self.bi_compression)?;
+        w.write_i32::<LittleEndian>(BMPCompression::to_bytes(&self.bi_compression))?;
         w.write_i32::<LittleEndian>(self.bi_size_image)?;
         w.write_i32::<LittleEndian>(self.bi_x_pels_per_meter)?;
         w.write_i32::<LittleEndian>(self.bi_y_pels_per_meter)?;
@@ -433,7 +456,7 @@ pub struct BMPV4Header {
     bv4_height: i32,
     bv4_planes: i16,
     bv4_bit_count: i16,
-    bv4_v4_compression: i32,
+    bv4_v4_compression: BMPCompression,
     bv4_size_image: i32,
     bv4_x_pels_per_meter: i32,
     bv4_y_pels_per_meter: i32,
@@ -458,7 +481,7 @@ impl BMPV4Header {
             bv4_height: r.read_i32::<LittleEndian>()?,
             bv4_planes: r.read_i16::<LittleEndian>()?,
             bv4_bit_count: r.read_i16::<LittleEndian>()?,
-            bv4_v4_compression: r.read_i32::<LittleEndian>()?,
+            bv4_v4_compression: BMPCompression::from_bytes(r.read_i32::<LittleEndian>()?)?,
             bv4_size_image: r.read_i32::<LittleEndian>()?,
             bv4_x_pels_per_meter: r.read_i32::<LittleEndian>()?,
             bv4_y_pels_per_meter: r.read_i32::<LittleEndian>()?,
@@ -481,7 +504,7 @@ impl BMPV4Header {
         w.write_i32::<LittleEndian>(self.bv4_height)?;
         w.write_i16::<LittleEndian>(self.bv4_planes)?;
         w.write_i16::<LittleEndian>(self.bv4_bit_count)?;
-        w.write_i32::<LittleEndian>(self.bv4_v4_compression)?;
+        w.write_i32::<LittleEndian>(BMPCompression::to_bytes(&self.bv4_v4_compression))?;
         w.write_i32::<LittleEndian>(self.bv4_size_image)?;
         w.write_i32::<LittleEndian>(self.bv4_x_pels_per_meter)?;
         w.write_i32::<LittleEndian>(self.bv4_y_pels_per_meter)?;
@@ -553,7 +576,7 @@ pub struct BMPV5Header {
     bv5_height: i32,
     bv5_planes: i16,
     bv5_bit_count: i16,
-    bv5_compression: i32,
+    bv5_compression: BMPCompression,
     bv5_size_image: i32,
     bv5_x_pels_per_meter: i32,
     bv5_y_pels_per_meter: i32,
@@ -582,7 +605,7 @@ impl BMPV5Header {
             bv5_height: r.read_i32::<LittleEndian>()?,
             bv5_planes: r.read_i16::<LittleEndian>()?,
             bv5_bit_count: r.read_i16::<LittleEndian>()?,
-            bv5_compression: r.read_i32::<LittleEndian>()?,
+            bv5_compression: BMPCompression::from_bytes(r.read_i32::<LittleEndian>()?)?,
             bv5_size_image: r.read_i32::<LittleEndian>()?,
             bv5_x_pels_per_meter: r.read_i32::<LittleEndian>()?,
             bv5_y_pels_per_meter: r.read_i32::<LittleEndian>()?,
@@ -609,7 +632,7 @@ impl BMPV5Header {
         w.write_i32::<LittleEndian>(self.bv5_height)?;
         w.write_i16::<LittleEndian>(self.bv5_planes)?;
         w.write_i16::<LittleEndian>(self.bv5_bit_count)?;
-        w.write_i32::<LittleEndian>(self.bv5_compression)?;
+        w.write_i32::<LittleEndian>(BMPCompression::to_bytes(&self.bv5_compression))?;
         w.write_i32::<LittleEndian>(self.bv5_size_image)?;
         w.write_i32::<LittleEndian>(self.bv5_x_pels_per_meter)?;
         w.write_i32::<LittleEndian>(self.bv5_y_pels_per_meter)?;
