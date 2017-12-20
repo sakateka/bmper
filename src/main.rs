@@ -1,7 +1,10 @@
 extern crate byteorder;
+extern crate rand;
+#[macro_use]
 extern crate clap;
 
 pub mod bmp;
+mod encoding;
 mod args;
 
 pub fn main() {
@@ -29,7 +32,22 @@ pub fn main() {
         image.grayscale();
         image.save_to_file(dst).unwrap();
     } else if let Some(matches) = app.subcommand_matches("border") {
-        println!("Draw border!");
+        let src = matches.value_of("SRC").unwrap();
+        let dst = matches.value_of("DST").unwrap();
+        let mut width: i16 = 15; // pixels
+        if matches.is_present("width") {
+            width = value_t_or_exit!(matches, "width", i16);
+        }
+        let mut image = bmp::BMPImage::load_meta_and_bitmap(src).unwrap();
+        image.decode_bitmap();
+        image.border(width);
+        image.save_to_file(dst).unwrap();
+    } else if let Some(matches) = app.subcommand_matches("decode") {
+        let src = matches.value_of("SRC").unwrap();
+        let dst = matches.value_of("DST").unwrap();
+        let mut image = bmp::BMPImage::load_meta_and_bitmap(src).unwrap();
+        image.decode_bitmap();
+        image.save_to_file(dst).unwrap();
     }
 }
 

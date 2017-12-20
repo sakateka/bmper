@@ -21,6 +21,9 @@ use std::fs::File;
 use std::path::Path;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use rand::{self, Rng};
+
+use encoding::{Rle8, Rle4};
 
 #[derive(Debug, Copy, Clone)]
 pub enum BMPCompression {
@@ -90,52 +93,28 @@ pub const BMP_INFO_HEADER_SIZE: i32 = 40;
 pub const BMP_V4_INFO_HEADER_SIZE: i32 = 104;
 pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 
-pub const RLE_MARK: u8 = 0x00;
-pub const RLE_EOL: u8 = 0x00;
-pub const RLE_EOB: u8 = 0x01;
-pub const RLE_DELTA: u8 = 0x02;
-
 #[derive(Debug)]
-struct Bitmap {
-    data: Vec<u8>,
-    decoded: bool,
+pub struct Bitmap {
+    pub data: Vec<u8>,
+    pub decoded: Option<BMPCompression>,
 }
 
 impl Bitmap {
-    fn encode_rle8(&mut self) {
-        self.decoded = false;
-        self.data = Vec::new();
-    }
-    fn encode_rle4(&mut self) {
-        self.decoded = false;
-        self.data = Vec::new();
-    }
-    fn encode_bitfields(&mut self) {
-        unimplemented!()
-    }
-    fn encode_jpeg(&mut self) {
-        unimplemented!()
-    }
-    fn encode_png(&mut self) {
-        unimplemented!()
-    }
-
-    fn decode_rle8(&mut self) {
-        self.decoded = true;
-        self.data = Vec::new();
-    }
-    fn decode_rle4(&mut self) {
-        self.decoded = true;
-        self.data = Vec::new();
-    }
-    fn decode_bitfields(&mut self) {
-        unimplemented!()
-    }
-    fn decode_jpeg(&mut self) {
-        unimplemented!()
-    }
-    fn decode_png(&mut self) {
-        unimplemented!()
+    fn border(&mut self, border_widtch: i16, width: i32, height: i32, colors: usize) {
+        let bw = border_widtch as i32;
+        let mut x = 0;
+        let mut y = 0;
+        let mut rng = rand::thread_rng();
+        for b in self.data.iter_mut() {
+            if x < bw || x > width - bw || y < bw || y > height - bw {
+                *b = (rng.next_u64() % colors as u64) as u8;
+            }
+            x += 1;
+            if x >= width {
+                x = 0;
+                y += 1;
+            }
+        }
     }
 }
 
@@ -173,8 +152,8 @@ impl BMPImage {
             info: info.unwrap(),
             bitmap: Bitmap {
                  data: Vec::new(),
-                 decoded: false,
-            }
+                 decoded: None,
+            },
         })
     }
     pub fn load_meta_and_bitmap<P: AsRef<Path>>(p: P) -> Result<BMPImage, io::Error> {
@@ -192,45 +171,57 @@ impl BMPImage {
             quad.rgb_blue = average as u8;
         }
     }
-    pub fn border(&mut self, width: u32) {
+    pub fn border(&mut self, width: i16) {
         self.decode_bitmap();
+        self.bitmap.border(
+            width,
+            self.info.bmi_header.get_width(),
+            self.info.bmi_header.get_height(),
+            self.info.bmi_colors.len(),
+        );
+        //self.encode_bitmap(BMPCompression::RLE8);
     }
+
     pub fn save_to_file<P: AsRef<Path>>(&mut self, p: P) -> Result<usize, io::Error> {
         let mut f = BufWriter::new(File::create(p)?);
         self.header.save_to_writer(&mut f)?;
         self.info.save_to_writer(&mut f)?;
-        if self.bitmap.decoded {
-            self.encode_bitmap()
-        }
         f.write_all(&self.bitmap.data)?;
         Ok(0 as usize)
     }
 
-    pub fn encode_bitmap(&mut self) {
-        if !self.bitmap.decoded {
-            return
-        }
-        match self.info.bmi_header.get_compression_type() {
+    pub fn encode_bitmap(&mut self, compression: BMPCompression) {
+        let width = self.info.bmi_header.get_width();
+        let height = self.info.bmi_header.get_height();
+        match compression {
             BMPCompression::RGB => return,
-            BMPCompression::RLE8 => self.bitmap.encode_rle8(),
-            BMPCompression::RLE4 => self.bitmap.encode_rle4(),
-            BMPCompression::BITFIELDS => self.bitmap.encode_bitfields(),
-            BMPCompression::JPEG => self.bitmap.encode_jpeg(),
-            BMPCompression::PNG => self.bitmap.encode_png(),
+            BMPCompression::RLE8 => Rle8::encode(&mut self.bitmap, width, height),
+            BMPCompression::RLE4 => Rle4::encode(&mut self.bitmap, width, height),
+            BMPCompression::BITFIELDS => unimplemented!(),
+            BMPCompression::JPEG => unimplemented!(),
+            BMPCompression::PNG => unimplemented!(),
         };
     }
     pub fn decode_bitmap(&mut self) {
-        if self.bitmap.decoded {
-            return
-        }
+        let width = self.info.bmi_header.get_width();
+        let height = self.info.bmi_header.get_height();
         match self.info.bmi_header.get_compression_type() {
             BMPCompression::RGB => return,
-            BMPCompression::RLE8 => self.bitmap.decode_rle8(),
-            BMPCompression::RLE4 => self.bitmap.decode_rle4(),
-            BMPCompression::BITFIELDS => self.bitmap.decode_bitfields(),
-            BMPCompression::JPEG => self.bitmap.decode_jpeg(),
-            BMPCompression::PNG => self.bitmap.decode_png(),
+            BMPCompression::RLE8 => Rle8::decode(&mut self.bitmap, width, height),
+            BMPCompression::RLE4 => Rle4::decode(&mut self.bitmap, width, height),
+            BMPCompression::BITFIELDS => unimplemented!(),
+            BMPCompression::JPEG => unimplemented!(),
+            BMPCompression::PNG => unimplemented!(),
         };
+        self.info.bmi_header.set_encoding(BMPCompression::RGB);
+
+        let delta = self.bitmap.data.len() as i32 - self.info.bmi_header.get_bitmap_size();
+        match self.info.bmi_header {
+            BMPGenericInfoHeader::Info(ref mut i) => i.bi_size_image += delta,
+            BMPGenericInfoHeader::V4Info(ref mut i) => i.bv4_size_image += delta,
+            BMPGenericInfoHeader::V5Info(ref mut i) => i.bv5_size_image += delta,
+        }
+        self.header.bf_size += delta;
     }
 }
 
@@ -360,6 +351,13 @@ impl BMPGenericInfoHeader {
             BMPGenericInfoHeader::Info(_) => "Windows NT, 3.1x or later",
             BMPGenericInfoHeader::V4Info(_) => "Windows NT 4.0, 95 or later",
             BMPGenericInfoHeader::V5Info(_) => "Windows NT 5.0, 98 or later",
+        }
+    }
+    pub fn set_encoding(&mut self, enc :BMPCompression) {
+        match *self {
+            BMPGenericInfoHeader::Info(ref mut i) => i.bi_compression = enc,
+            BMPGenericInfoHeader::V4Info(ref mut i) => i.bv4_v4_compression = enc,
+            BMPGenericInfoHeader::V5Info(ref mut i) => i.bv5_compression = enc,
         }
     }
 }
