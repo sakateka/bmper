@@ -91,10 +91,54 @@ pub const BMP_V4_INFO_HEADER_SIZE: i32 = 104;
 pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 
 #[derive(Debug)]
+struct Bitmap {
+    data: Vec<u8>,
+    decoded: bool,
+}
+
+impl Bitmap {
+    fn encode_rle8(&mut self) {
+        self.decoded = false;
+        self.data = Vec::new();
+    }
+    fn encode_rle4(&mut self) {
+        self.decoded = false;
+        self.data = Vec::new();
+    }
+    fn encode_bitfields(&mut self) {
+        unimplemented!()
+    }
+    fn encode_jpeg(&mut self) {
+        unimplemented!()
+    }
+    fn encode_png(&mut self) {
+        unimplemented!()
+    }
+
+    fn decode_rle8(&mut self) {
+        self.decoded = true;
+        self.data = Vec::new();
+    }
+    fn decode_rle4(&mut self) {
+        self.decoded = true;
+        self.data = Vec::new();
+    }
+    fn decode_bitfields(&mut self) {
+        unimplemented!()
+    }
+    fn decode_jpeg(&mut self) {
+        unimplemented!()
+    }
+    fn decode_png(&mut self) {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug)]
 pub struct BMPImage {
     pub header: BMPFileHeader,
     pub info: BMPInfo,
-    bitmap: Vec<u8>,
+    bitmap: Bitmap,
 }
 
 impl BMPImage {
@@ -122,14 +166,17 @@ impl BMPImage {
         Ok(BMPImage {
             header: header.unwrap(),
             info: info.unwrap(),
-            bitmap: Vec::new(),
+            bitmap: Bitmap {
+                 data: Vec::new(),
+                 decoded: false,
+            }
         })
     }
     pub fn load_meta_and_bitmap<P: AsRef<Path>>(p: P) -> Result<BMPImage, io::Error> {
         let mut f = BufReader::new(File::open(p)?);
         let mut image = BMPImage::load_from_reader(&mut f)?;
-        image.bitmap = vec![0u8; image.info.bmi_header.get_bitmap_size() as usize];
-        f.read_exact(&mut image.bitmap)?;
+        image.bitmap.data = vec![0u8; image.info.bmi_header.get_bitmap_size() as usize];
+        f.read_exact(&mut image.bitmap.data)?;
         Ok(image)
     }
     pub fn grayscale(&mut self) {
@@ -141,41 +188,38 @@ impl BMPImage {
         }
     }
     pub fn border(&mut self, width: u32) {
-        self.encode_bitmap();
+        self.decode_bitmap();
     }
-    pub fn save_to_file<P: AsRef<Path>>(&self, p: P) -> Result<usize, io::Error> {
+    pub fn save_to_file<P: AsRef<Path>>(&mut self, p: P) -> Result<usize, io::Error> {
         let mut f = BufWriter::new(File::create(p)?);
         self.header.save_to_writer(&mut f)?;
         self.info.save_to_writer(&mut f)?;
-        f.write_all(&self.bitmap)?;
+        if self.bitmap.decoded {
+            self.encode_bitmap()
+        }
+        f.write_all(&self.bitmap.data)?;
         Ok(0 as usize)
     }
 
     pub fn encode_bitmap(&mut self) {
-        self.bitmap = match self.info.bmi_header.get_compression_type() {
+        match self.info.bmi_header.get_compression_type() {
             BMPCompression::RGB => return,
-            BMPCompression::RLE8 => self.decode_rle8(),
-            BMPCompression::RLE4 => self.decode_rle4(),
-            BMPCompression::BITFIELDS => self.decode_bitfields(),
-            BMPCompression::JPEG => self.decode_jpeg(),
-            BMPCompression::PNG => self.decode_png(),
+            BMPCompression::RLE8 => self.bitmap.encode_rle8(),
+            BMPCompression::RLE4 => self.bitmap.encode_rle4(),
+            BMPCompression::BITFIELDS => self.bitmap.encode_bitfields(),
+            BMPCompression::JPEG => self.bitmap.encode_jpeg(),
+            BMPCompression::PNG => self.bitmap.encode_png(),
         };
     }
-
-    fn decode_rle8(&self) -> Vec<u8> {
-        Vec::new()
-    }
-    fn decode_rle4(&self) -> Vec<u8> {
-        Vec::new()
-    }
-    fn decode_bitfields(&self) -> Vec<u8> {
-        unimplemented!()
-    }
-    fn decode_jpeg(&self) -> Vec<u8> {
-        unimplemented!()
-    }
-    fn decode_png(&self) -> Vec<u8> {
-        unimplemented!()
+    pub fn decode_bitmap(&mut self) {
+        match self.info.bmi_header.get_compression_type() {
+            BMPCompression::RGB => return,
+            BMPCompression::RLE8 => self.bitmap.decode_rle8(),
+            BMPCompression::RLE4 => self.bitmap.decode_rle4(),
+            BMPCompression::BITFIELDS => self.bitmap.decode_bitfields(),
+            BMPCompression::JPEG => self.bitmap.decode_jpeg(),
+            BMPCompression::PNG => self.bitmap.decode_png(),
+        };
     }
 }
 
