@@ -90,6 +90,11 @@ pub const BMP_INFO_HEADER_SIZE: i32 = 40;
 pub const BMP_V4_INFO_HEADER_SIZE: i32 = 104;
 pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 
+pub const RLE_MARK: u8 = 0x00;
+pub const RLE_EOL: u8 = 0x00;
+pub const RLE_EOB: u8 = 0x01;
+pub const RLE_DELTA: u8 = 0x02;
+
 #[derive(Debug)]
 struct Bitmap {
     data: Vec<u8>,
@@ -202,6 +207,9 @@ impl BMPImage {
     }
 
     pub fn encode_bitmap(&mut self) {
+        if !self.bitmap.decoded {
+            return
+        }
         match self.info.bmi_header.get_compression_type() {
             BMPCompression::RGB => return,
             BMPCompression::RLE8 => self.bitmap.encode_rle8(),
@@ -212,6 +220,9 @@ impl BMPImage {
         };
     }
     pub fn decode_bitmap(&mut self) {
+        if self.bitmap.decoded {
+            return
+        }
         match self.info.bmi_header.get_compression_type() {
             BMPCompression::RGB => return,
             BMPCompression::RLE8 => self.bitmap.decode_rle8(),
