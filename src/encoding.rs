@@ -25,8 +25,9 @@ impl Rle8 for bmp::Bitmap {
             None => return,
             _ => (),
         }
-        self.decoded = Some(bmp::BMPCompression::RLE8);
-        self.data = Vec::new();
+        unimplemented!();
+        //self.decoded = Some(bmp::BMPCompression::RLE8);
+        //self.data = Vec::new();
     }
     fn decode(&mut self, width: i32, height: i32) {
         assert!(height > 0);
@@ -119,12 +120,10 @@ impl Rle8 for bmp::Bitmap {
 
 impl Rle4 for bmp::Bitmap {
     fn encode(&mut self, _width: i32, _height: i32) {
-        self.decoded = None;
-        self.data = Vec::new();
+        unimplemented!();
     }
     fn decode(&mut self, _width: i32, _height: i32) {
-        self.decoded = Some(bmp::BMPCompression::RLE4);
-        self.data = Vec::new();
+        unimplemented!();
     }
 }
 
