@@ -102,32 +102,44 @@ pub struct Bitmap {
 impl Bitmap {
     fn border(&mut self, border_width: i16, width: i32, height: i32, bit_count: i16) {
         let bw = border_width as i32;
+        let bc = bit_count as i32;
         let mut x = 0;
+        // https://en.wikipedia.org/wiki/BMP_file_format
+        let bytes_pad = (bc * width + 31)/32*4 - width * bc/8;
+        println!("width {}, bytes_pad {}", width, bytes_pad);
         let mut y = 0;
         let mut rng = rand::thread_rng();
-        match bit_count {
+        match bc {
             1 | 4 | 8 =>  {
-                let mut value: u8;
-                let pixels = (8 / bit_count) as i32;
-                for b in self.data.iter_mut() {
-                    // draw border
+                let pixels = 8 / bc;
+                let mut it = self.data.iter_mut();
+                loop {
+                    let b;
+                    match it.next() {
+                        Some(v) => b = v,
+                        None => break,
+                    }
                     for idx in 0..pixels {
                         if x <= bw || x > width - bw || y <= bw || y > height - bw {
                             *b = 0u8;
-                            value = (rng.next_u32() % 2u32.pow(bit_count as u32)) as u8;
+                            let value = (rng.next_u32() % 2u32.pow(bc as u32)) as u8;
                             if idx > 0 {
-                                *b = *b << bit_count;
+                                *b = *b << bc;
                             }
                             *b = *b | value;
                         }
                         x += 1;
                         if x >= width {
+                            for _ in 0..bytes_pad {
+                                it.next();
+                            }
                             x = 0;
                             y += 1;
+                            break;
                         }
                     }
                 }
-            }
+            },
             16 => {
                 let mut color: u8;
                 let max_color = 2u32.pow(5);
@@ -147,10 +159,13 @@ impl Bitmap {
                             }
                             x += 1;
                             if x >= width {
+                                for _ in 0..bytes_pad {
+                                    it.next();
+                                }
                                 x = 0;
                                 y += 1;
                             }
-                            continue
+                            continue;
                         }
                     }
                     break;
@@ -170,6 +185,9 @@ impl Bitmap {
                                 }
                                 x += 1;
                                 if x >= width {
+                                    for _ in 0..bytes_pad {
+                                        it.next();
+                                    }
                                     x = 0;
                                     y += 1;
                                 }
