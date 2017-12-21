@@ -106,7 +106,6 @@ impl Bitmap {
         let mut x = 0;
         // https://en.wikipedia.org/wiki/BMP_file_format
         let bytes_pad = (bc * width + 31)/32*4 - width * bc/8;
-        println!("width {}, bytes_pad {}", width, bytes_pad);
         let mut y = 0;
         let mut rng = rand::thread_rng();
         match bc {
