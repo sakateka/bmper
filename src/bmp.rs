@@ -15,7 +15,7 @@
 //! and https://msdn.microsoft.com/en-us/library/dd183391(v=vs.85).aspx
 //! for more info
 
-use std::fmt;
+use std::{self, fmt};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
@@ -96,24 +96,92 @@ pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 #[derive(Debug)]
 pub struct Bitmap {
     pub data: Vec<u8>,
-    pub decoded: Option<BMPCompression>,
+    pub decoded_from: Option<BMPCompression>,
 }
 
 impl Bitmap {
-    fn border(&mut self, border_widtch: i16, width: i32, height: i32, colors: usize) {
-        let bw = border_widtch as i32;
+    fn border(&mut self, border_width: i16, width: i32, height: i32, bit_count: i16) {
+        let bw = border_width as i32;
         let mut x = 0;
         let mut y = 0;
         let mut rng = rand::thread_rng();
-        for b in self.data.iter_mut() {
-            if x < bw || x > width - bw || y < bw || y > height - bw {
-                *b = (rng.next_u64() % colors as u64) as u8;
+        match bit_count {
+            1 | 4 | 8 =>  {
+                let mut value: u8;
+                let pixels = (8 / bit_count) as i32;
+                for b in self.data.iter_mut() {
+                    // draw border
+                    for idx in 0..pixels {
+                        if x <= bw || x > width - bw || y <= bw || y > height - bw {
+                            *b = 0u8;
+                            value = (rng.next_u32() % 2u32.pow(bit_count as u32)) as u8;
+                            if idx > 0 {
+                                *b = *b << bit_count;
+                            }
+                            *b = *b | value;
+                        }
+                        x += 1;
+                        if x >= width {
+                            x = 0;
+                            y += 1;
+                        }
+                    }
+                }
             }
-            x += 1;
-            if x >= width {
-                x = 0;
-                y += 1;
-            }
+            16 => {
+                let mut color: u8;
+                let max_color = 2u32.pow(5);
+                let mut it = self.data.iter_mut();
+                let mask: u8 = 0b00011111;
+                loop {
+                    if let Some(b1) = it.next() {
+                        if let Some(b2) = it.next() {
+                            if x < bw || x > width - bw || y < bw || y > height - bw {
+                                color = (rng.next_u32() % max_color) as u8;
+                                *b1 = color & mask;
+                                color = (rng.next_u32() % max_color) as u8;
+                                *b1 = (*b1 << 2) | ((color & mask) >> 3);
+                                *b2 = (color & mask) << 5;
+                                color = (rng.next_u32() % max_color) as u8;
+                                *b2 = *b2 | (color & mask);
+                            }
+                            x += 1;
+                            if x >= width {
+                                x = 0;
+                                y += 1;
+                            }
+                            continue
+                        }
+                    }
+                    break;
+                }
+            },
+            24 => {
+                let max_color = std::u16::MAX as u32;
+                let mut it = self.data.iter_mut();
+                loop {
+                    if let Some(b1) = it.next() {
+                        if let Some(b2) = it.next() {
+                            if let Some(b3) = it.next() {
+                                if x < bw || x > width - bw || y < bw || y > height - bw {
+                                    *b1 = (rng.next_u32() % max_color) as u8;
+                                    *b2 = (rng.next_u32() % max_color) as u8;
+                                    *b3 = (rng.next_u32() % max_color) as u8;
+                                }
+                                x += 1;
+                                if x >= width {
+                                    x = 0;
+                                    y += 1;
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    break;
+                }
+            },
+            0 | 32 => unimplemented!(), /* jpeg or png bitmap */
+            _ => unreachable!(),
         }
     }
 }
@@ -152,7 +220,7 @@ impl BMPImage {
             info: info.unwrap(),
             bitmap: Bitmap {
                  data: Vec::new(),
-                 decoded: None,
+                 decoded_from: None,
             },
         })
     }
@@ -177,9 +245,12 @@ impl BMPImage {
             width,
             self.info.bmi_header.get_width(),
             self.info.bmi_header.get_height(),
-            self.info.bmi_colors.len(),
+            self.info.bmi_header.get_bit_count(),
         );
-        //self.encode_bitmap(BMPCompression::RLE8);
+        if let Some(enc) = self.bitmap.decoded_from {
+            // if we decode bitmap encode it into source encoding
+            // self.encode_bitmap(enc);
+        }
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&mut self, p: P) -> Result<usize, io::Error> {

@@ -1,6 +1,10 @@
+//!
+//! For decoding/encoding implementations details
+//! see http://www.binaryessence.com/dct/en000073.htm
+//!
+
 use bmp;
 
-/// http://www.binaryessence.com/dct/en000073.htm
 /// Start marker
 pub const RLE_MARK: u8 = 0x00;
 /// The end of line marker indicates that the next code will apply to a new line
@@ -21,20 +25,16 @@ pub trait Rle4 {
 
 impl Rle8 for bmp::Bitmap {
     fn encode(&mut self, _width: i32, _height: i32) {
-        match self.decoded {
-            None => return,
-            _ => (),
-        }
         unimplemented!();
-        //self.decoded = Some(bmp::BMPCompression::RLE8);
+        //self.decoded_from = None
         //self.data = Vec::new();
     }
     fn decode(&mut self, width: i32, height: i32) {
-        assert!(height > 0);
-        match self.decoded {
-            None => (),
-            _ => return,
+        if self.decoded_from.is_some() {
+            // if alredy decoded, do no thing
+            return
         }
+        assert!(height > 0);
         let mut decoded_bm = Vec::new();
         let mut x: i32 = 0;
         let mut y = height - 1;
@@ -113,7 +113,7 @@ impl Rle8 for bmp::Bitmap {
             let len = decoded_bm.len();
             decoded_bm.resize(len + append as usize, 0u8);
         }
-        self.decoded = Some(bmp::BMPCompression::RLE8);
+        self.decoded_from = Some(bmp::BMPCompression::RLE8);
         self.data = decoded_bm;
     }
 }
