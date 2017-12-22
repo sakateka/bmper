@@ -111,6 +111,7 @@ impl Bitmap {
         match bc {
             1 | 4 | 8 =>  {
                 let pixels = 8 / bc;
+                let max_color = 2u32.pow(bc as u32);
                 let mut it = self.data.iter_mut();
                 loop {
                     let b;
@@ -118,14 +119,18 @@ impl Bitmap {
                         Some(v) => b = v,
                         None => break,
                     }
-                    for idx in 0..pixels {
+                    for idx in 1..(pixels+1) {
                         if x <= bw || x > width - bw || y <= bw || y > height - bw {
-                            *b = 0u8;
-                            let value = (rng.next_u32() % 2u32.pow(bc as u32)) as u8;
-                            if idx > 0 {
-                                *b = *b << bc;
-                            }
-                            *b = *b | value;
+                            // new colors for border
+                            let mut mask = (rng.next_u32() % max_color) as u8;
+                            // position in u8 bit fields
+                            let shift = (pixels - idx) * bc;
+                            // move mask (colors) into appropriate position
+                            mask = mask << shift;
+                            // clear border pixels (bits)
+                            *b = *b & !((max_color-1) << shift) as u8;
+                            // apply random border colors (from mask)
+                            *b = *b | mask;
                         }
                         x += 1;
                         if x >= width {
