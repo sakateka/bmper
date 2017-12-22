@@ -1,7 +1,9 @@
-//!
+//! # RLE8
 //! For decoding/encoding implementations details
 //! see http://www.binaryessence.com/dct/en000073.htm
 //!
+//! # BitFields
+//! http://www.fileformat.info/format/bmp/egff.htm
 
 use bmp;
 

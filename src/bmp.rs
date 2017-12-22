@@ -1,19 +1,23 @@
-//! Device-independent bitmaps
+//! `bmper` bmp image metadata parser and more...
+//! ## Device-independent bitmaps
+//!
 //! The format for a DIB is the following (for more information, see Bitmap Storage ):
-//!   * a BITMAPFILEHEADER structure
-//!   * either a BITMAPINFOHEADER, a BITMAPV4HEADER, or a BITMAPV5HEADER structure.
-//!   * an optional color table, which is a set of RGBQUAD structures
-//!   * the bitmap data
-//!   * optional Profile data
+//!
+//! *  a BITMAPFILEHEADER structure
+//! *  either a BITMAPINFOHEADER, a BITMAPV4HEADER, or a BITMAPV5HEADER structure.
+//! *  an optional color table, which is a set of RGBQUAD structures
+//! *  the bitmap data
+//! *  optional Profile data
+//!
 //! A color table describes how pixel values correspond to RGB color values.
 //! RGB is a model for describing colors that are produced by emitting light.
 //!
 //! The four types of bitmap headers are differentiated by the Size member,
 //! which is the first DWORD in each of the structures.
 //!
+//! ## For more info
 //! see https://msdn.microsoft.com/en-us/library/dd183386(v=vs.85).aspx
 //! and https://msdn.microsoft.com/en-us/library/dd183391(v=vs.85).aspx
-//! for more info
 
 use std::{self, fmt};
 use std::error::Error;

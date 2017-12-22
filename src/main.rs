@@ -4,7 +4,7 @@ extern crate rand;
 extern crate clap;
 
 pub mod bmp;
-mod encoding;
+pub mod encoding;
 mod args;
 
 pub fn main() {
