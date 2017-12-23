@@ -7,3 +7,6 @@ authors = ["Sergey Kacheev <uo0@ya.ru>"]
 clap = "~2.29.0"
 byteorder = "~1.2.1"
 rand = "0.3"
+gdk = "0.7"
+gtk = { version = "0.3", features = ["v3_10"] }
+gdk-pixbuf = "0.3"

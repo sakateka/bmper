@@ -5,6 +5,7 @@ extern crate clap;
 
 pub mod bmp;
 pub mod encoding;
+pub mod display;
 mod args;
 
 pub fn main() {
@@ -45,6 +46,9 @@ pub fn main() {
         let mut image = bmp::BMPImage::load_meta_and_bitmap(src).expect(src);
         image.decode_bitmap();
         image.save_to_file(dst).expect(dst);
+    } else if let Some(matches) = app.subcommand_matches("display") {
+        let image = matches.value_of("IMAGE").unwrap();
+        display::image(image);
     }
 }
 

@@ -77,5 +77,15 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
                         .index(2),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("display")
+                .about("Display image")
+                .arg(
+                    Arg::with_name("IMAGE")
+                        .help("Image file for displaying")
+                        .required(true)
+                        .index(1),
+                ),
+        )
         .get_matches()
 }

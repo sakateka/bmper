@@ -273,10 +273,12 @@ impl BMPImage {
             self.info.bmi_header.get_height(),
             self.info.bmi_header.get_bit_count(),
         );
+        /*
         if let Some(enc) = self.bitmap.decoded_from {
             // if we decode bitmap encode it into source encoding
-            // self.encode_bitmap(enc);
+            self.encode_bitmap(enc);
         }
+        */
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&mut self, p: P) -> Result<usize, io::Error> {
