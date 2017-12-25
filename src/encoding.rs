@@ -20,14 +20,9 @@ pub trait Rle8 {
     fn encode(&mut self, _width: i32, _height: i32);
     fn decode(&mut self, width: i32, height: i32);
 }
-pub trait Rle4 {
-    fn encode(&mut self, _width: i32, _height: i32);
-    fn decode(&mut self, _width: i32, _height: i32);
-}
-
 impl Rle8 for bmp::Bitmap {
     fn encode(&mut self, _width: i32, _height: i32) {
-        unimplemented!();
+        unimplemented!("bmp Rle8 bitmap encoding");
         //self.decoded_from = None
         //self.data = Vec::new();
     }
@@ -119,41 +114,3 @@ impl Rle8 for bmp::Bitmap {
         self.data = decoded_bm;
     }
 }
-
-impl Rle4 for bmp::Bitmap {
-    fn encode(&mut self, _width: i32, _height: i32) {
-        unimplemented!();
-    }
-    fn decode(&mut self, _width: i32, _height: i32) {
-        unimplemented!();
-    }
-}
-
-/*
-fn encode_bitfields(&mut self) {
-    unimplemented!()
-}
-
-fn encode_jpeg(&mut self) {
-    unimplemented!()
-}
-
-fn encode_png(&mut self) {
-    unimplemented!()
-}
-*/
-
-
-/*
-fn decode_bitfields(&mut self) {
-    unimplemented!()
-}
-
-fn decode_jpeg(&mut self) {
-    unimplemented!()
-}
-
-fn decode_png(&mut self) {
-    unimplemented!()
-}
-*/

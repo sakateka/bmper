@@ -27,7 +27,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rand::{self, Rng};
 
-use encoding::{Rle8, Rle4};
+use encoding::Rle8;
 
 #[derive(Debug, Copy, Clone)]
 pub enum BMPCompression {
@@ -206,7 +206,7 @@ impl Bitmap {
                     break;
                 }
             },
-            0 | 32 => unimplemented!(), /* jpeg or png bitmap */
+            0 | 32 => unimplemented!("bmp border for bitmap with {} bits per pixel", bc), /* jpeg or png bitmap */
             _ => unreachable!(),
         }
     }
@@ -295,10 +295,10 @@ impl BMPImage {
         match compression {
             BMPCompression::RGB => return,
             BMPCompression::RLE8 => Rle8::encode(&mut self.bitmap, width, height),
-            BMPCompression::RLE4 => Rle4::encode(&mut self.bitmap, width, height),
-            BMPCompression::BITFIELDS => unimplemented!(),
-            BMPCompression::JPEG => unimplemented!(),
-            BMPCompression::PNG => unimplemented!(),
+            BMPCompression::RLE4 => unimplemented!("bmp Rle4 bitmap encoding"),
+            BMPCompression::BITFIELDS => unimplemented!("bmp bitfield bitmap encoding"),
+            BMPCompression::JPEG => unimplemented!("bmp JPEG bitmap encoding"),
+            BMPCompression::PNG => unimplemented!("bmp PNG bitmap encoding"),
         };
     }
     pub fn decode_bitmap(&mut self) {
@@ -307,10 +307,10 @@ impl BMPImage {
         match self.info.bmi_header.get_compression_type() {
             BMPCompression::RGB => return,
             BMPCompression::RLE8 => Rle8::decode(&mut self.bitmap, width, height),
-            BMPCompression::RLE4 => Rle4::decode(&mut self.bitmap, width, height),
-            BMPCompression::BITFIELDS => unimplemented!(),
-            BMPCompression::JPEG => unimplemented!(),
-            BMPCompression::PNG => unimplemented!(),
+            BMPCompression::RLE4 => unimplemented!("bmp Rle4 bitmap decoding"),
+            BMPCompression::BITFIELDS => unimplemented!("bmp bitfields decoding"),
+            BMPCompression::JPEG => unimplemented!("bmp JPEG bitmap decoding"),
+            BMPCompression::PNG => unimplemented!("bmp PNG bitmap decoding"),
         };
         self.info.bmi_header.set_encoding(BMPCompression::RGB);
 
@@ -362,7 +362,7 @@ impl BMPFileHeader {
         try!(r.read_exact(&mut sig));
         if &sig != b"BM" {
             return Err(io::Error::new(
-                io::ErrorKind::Other,
+                io::ErrorKind::InvalidData,
                 format!("Invalid BMP signature: '{:?}'", sig),
             ));
         }

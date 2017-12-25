@@ -4,12 +4,14 @@ extern crate rand;
 extern crate clap;
 
 pub mod bmp;
+pub mod pcx;
 pub mod encoding;
 pub mod display;
 mod args;
 
 pub fn main() {
     let app = args::build_app("bmper");
+
     if let Some(matches) = app.subcommand_matches("meta") {
         let filename = matches.value_of("FILE").unwrap();
         println!("Info from file {:?}", filename);
@@ -23,12 +25,14 @@ pub fn main() {
         if matches.is_present("colors") {
             println!("{:?}", bmp_info.info.bmi_colors);
         }
+
     } else if let Some(matches) = app.subcommand_matches("grayscale") {
         let src = matches.value_of("SRC").unwrap();
         let dst = matches.value_of("DST").unwrap();
         let mut image = bmp::BMPImage::load_meta_and_bitmap(src).expect(src);
         image.grayscale();
         image.save_to_file(dst).expect(dst);
+
     } else if let Some(matches) = app.subcommand_matches("border") {
         let src = matches.value_of("SRC").unwrap();
         let dst = matches.value_of("DST").unwrap();
@@ -40,12 +44,14 @@ pub fn main() {
         image.decode_bitmap();
         image.border(width);
         image.save_to_file(dst).expect(dst);
+
     } else if let Some(matches) = app.subcommand_matches("decode") {
         let src = matches.value_of("SRC").unwrap();
         let dst = matches.value_of("DST").unwrap();
         let mut image = bmp::BMPImage::load_meta_and_bitmap(src).expect(src);
         image.decode_bitmap();
         image.save_to_file(dst).expect(dst);
+
     } else if let Some(matches) = app.subcommand_matches("display") {
         let image = matches.value_of("IMAGE").unwrap();
         display::image(image);

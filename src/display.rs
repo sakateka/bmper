@@ -2,14 +2,31 @@ extern crate gtk;
 extern crate gdk;
 extern crate gdk_pixbuf;
 
+use std::io;
 use std::process;
 use self::gtk::prelude::*;
 use self::gtk::{Window, HeaderBar, DrawingArea, WindowType};
 use self::gdk::ContextExt;
 use self::gdk_pixbuf::Pixbuf;
 
+use pcx;
+
+fn pixbuf_from_file(name: &str) -> Result<Pixbuf, io::Error> {
+    let pb = Pixbuf::new_from_file(name);
+    if pb.is_ok() {
+        return Ok(pb.unwrap());
+    }
+    if name.to_lowercase().ends_with(".pcx") {
+        return pcx::pixbuf_from_file(name);
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("Failed to load image data: '{}'", pb.unwrap_err()),
+    ))
+}
+
 pub fn image(name: &str) {
-    let image = Pixbuf::new_from_file(name).unwrap_or_else(|e| {
+    let image = pixbuf_from_file(name).unwrap_or_else(|e| {
         eprintln!("Faile to display: {}", e);
         process::exit(1);
     });
