@@ -21,13 +21,13 @@ fn pixbuf_from_file(name: &str) -> Result<Pixbuf, io::Error> {
     }
     Err(io::Error::new(
         io::ErrorKind::InvalidInput,
-        format!("Failed to load image data: '{}'", pb.unwrap_err()),
+        format!("Can't load image data: '{}'", pb.unwrap_err()),
     ))
 }
 
 pub fn image(name: &str) {
     let image = pixbuf_from_file(name).unwrap_or_else(|e| {
-        eprintln!("Faile to display: {}", e);
+        eprintln!("Can't display: {}", e);
         process::exit(1);
     });
 
