@@ -55,7 +55,7 @@ pub fn image(name: &str) {
 
     let draw_area = DrawingArea::new();
     draw_area.connect_draw(move |_, c| {
-        c.set_source_pixbuf(&image, 0 as f64, 0 as f64);
+        c.set_source_pixbuf(&image, 0f64, 0f64);
         c.paint();
         c.stroke();
         Inhibit(false)
