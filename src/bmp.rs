@@ -27,6 +27,8 @@ use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rand::{self, Rng};
 
+use std::process;
+
 use encoding::Rle8;
 
 #[derive(Debug, Copy, Clone)]
@@ -66,7 +68,7 @@ impl fmt::Display for BMPCompression {
 }
 
 impl BMPCompression {
-    pub fn from_bytes(b: i32) -> Result<BMPCompression, io::Error> {
+    pub fn from_bytes(b: i32) -> io::Result<BMPCompression> {
         match b {
             0 => Ok(BMPCompression::RGB),
             1 => Ok(BMPCompression::RLE8),
@@ -94,7 +96,7 @@ impl BMPCompression {
 
 pub const BMP_FILE_HEADER_SIZE: u64 = 14;
 pub const BMP_INFO_HEADER_SIZE: i32 = 40;
-pub const BMP_V4_INFO_HEADER_SIZE: i32 = 104;
+pub const BMP_V4_INFO_HEADER_SIZE: i32 = 108;
 pub const BMP_V5_INFO_HEADER_SIZE: i32 = 124;
 
 #[derive(Debug)]
@@ -107,9 +109,9 @@ impl Bitmap {
     fn border(&mut self, border_width: i16, width: i32, height: i32, bit_count: i16) {
         let bw = border_width as i32;
         let bc = bit_count as i32;
-        let mut x = 0;
         // https://en.wikipedia.org/wiki/BMP_file_format
         let bytes_pad = (bc * width + 31)/32*4 - width * bc/8;
+        let mut x = 0;
         let mut y = 0;
         let mut rng = rand::thread_rng();
         match bc {
@@ -210,6 +212,101 @@ impl Bitmap {
             _ => unreachable!(),
         }
     }
+
+    fn add_logo(&mut self, logo_file: &str, width: i32, height: i32, bit_count: i16) -> io::Result<()> {
+        let logo_margin = 15; // pixels
+        let bc = bit_count as i32;
+        if bc != 24 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Only 24 bits per pixel source BMP are supported.".to_owned(),
+            ));
+        }
+
+        let logo_info = BMPInfo::load_from_file(logo_file)?;
+        let logo_width = logo_info.bmi_header.get_width();
+        let logo_height = logo_info.bmi_header.get_height();
+
+        if logo_width > width - logo_margin || logo_height > height - logo_margin {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Logo bitmap too large".to_owned(),
+            ));
+        }
+
+        let logo_vec = logo_to_rgb_vec(logo_file)?;
+        let mut logo_iter = logo_vec.into_iter();
+
+        let mut x = 0;
+        let mut x_logo = 0;
+        let mut y = 0;
+        let mut y_logo = 0;
+        let mut it = self.data.iter_mut();
+        let bytes_pad = (bc * width + 31)/32*4 - width * bc/8;
+        while let (Some(b1), Some(b2), Some(b3)) = (it.next(), it.next(), it.next()) {
+            if x >= width - logo_width - logo_margin && y >= height - logo_height - logo_margin {
+                if x_logo < logo_width && y_logo < logo_height {
+                    if let Some(pixel) = logo_iter.next() {
+                        *b1 = pixel.rgb_red;
+                        *b2 = pixel.rgb_green;
+                        *b3 = pixel.rgb_blue;
+                        x_logo += 1;
+                    }
+                }
+            }
+            x += 1;
+            if x >= width {
+                for _ in 0..bytes_pad {
+                    it.next();
+                }
+                x = 0;
+                y += 1;
+                if x_logo > 0 {
+                    x_logo = 0;
+                    y_logo += 1;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn logo_to_rgb_vec(file: &str) -> io::Result<Vec<RGBQuad>> {
+    let logo = BMPImage::load_from_file(file)?;
+    let bc = logo.info.bmi_header.get_bit_count() as i32;
+
+    if bc != 24 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Only 24 bits per pixel BMP files are supported".to_owned(),
+        ));
+    }
+
+    let width = logo.info.bmi_header.get_width();
+    let height = logo.info.bmi_header.get_height();
+    let bytes_pad = (bc * width + 31)/32*4 - width * bc/8;
+
+    let mut it = logo.bitmap.data.iter();
+
+    let mut x = 0;
+    let mut result = Vec::with_capacity((width * height) as usize);
+    while let (Some(b1), Some(b2), Some(b3)) = (it.next(), it.next(), it.next()) {
+        result.push(RGBQuad {
+            rgb_red: *b1,
+            rgb_green: *b2,
+            rgb_blue: *b3,
+            rgb_reserved: 0,
+        });
+
+        x += 1;
+        if x >= width {
+            for _ in 0..bytes_pad {
+                it.next();
+            }
+            x = 0;
+        }
+    }
+    Ok(result)
 }
 
 #[derive(Debug)]
@@ -220,11 +317,11 @@ pub struct BMPImage {
 }
 
 impl BMPImage {
-    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPImage, io::Error> {
+    pub fn meta_from_file<P: AsRef<Path>>(p: P) -> io::Result<BMPImage> {
         let mut f = BufReader::new(File::open(p)?);
-        BMPImage::load_from_reader(&mut f)
+        BMPImage::meta_from_reader(&mut f)
     }
-    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPImage, io::Error> {
+    pub fn meta_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> io::Result<BMPImage> {
         let header = BMPFileHeader::load_from_reader(r);
         if header.is_err() {
             let err = header.err().unwrap();
@@ -250,9 +347,9 @@ impl BMPImage {
             },
         })
     }
-    pub fn load_meta_and_bitmap<P: AsRef<Path>>(p: P) -> Result<BMPImage, io::Error> {
+    pub fn load_from_file<P: AsRef<Path>>(p: P) -> io::Result<BMPImage> {
         let mut f = BufReader::new(File::open(p)?);
-        let mut image = BMPImage::load_from_reader(&mut f)?;
+        let mut image = BMPImage::meta_from_reader(&mut f)?;
         image.bitmap.data = vec![0u8; image.info.bmi_header.get_bitmap_size() as usize];
         f.read_exact(&mut image.bitmap.data)?;
         Ok(image)
@@ -280,8 +377,19 @@ impl BMPImage {
         }
         */
     }
+    pub fn add_logo(&mut self, logo: &str) {
+        self.bitmap.add_logo(
+            logo,
+            self.info.bmi_header.get_width(),
+            self.info.bmi_header.get_height(),
+            self.info.bmi_header.get_bit_count(),
+        ).unwrap_or_else(|e| {
+            eprintln!("Can't add logo: {}", e);
+            process::exit(1);
+        });
+    }
 
-    pub fn save_to_file<P: AsRef<Path>>(&mut self, p: P) -> Result<usize, io::Error> {
+    pub fn save_to_file<P: AsRef<Path>>(&mut self, p: P) -> io::Result<usize> {
         let mut f = BufWriter::new(File::create(p)?);
         self.header.save_to_writer(&mut f)?;
         self.info.save_to_writer(&mut f)?;
@@ -353,11 +461,11 @@ impl fmt::Display for BMPFileHeader {
 }
 
 impl BMPFileHeader {
-    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPFileHeader, io::Error> {
+    pub fn load_from_file<P: AsRef<Path>>(p: P) -> io::Result<BMPFileHeader> {
         let mut f = BufReader::new(File::open(p)?);
         BMPFileHeader::load_from_reader(&mut f)
     }
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPFileHeader, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<BMPFileHeader> {
         let mut sig = [0u8; 2];
         try!(r.read_exact(&mut sig));
         if &sig != b"BM" {
@@ -470,11 +578,11 @@ pub struct BMPInfo {
 }
 
 impl BMPInfo {
-    pub fn load_from_file<P: AsRef<Path>>(p: P) -> Result<BMPInfo, io::Error> {
+    pub fn load_from_file<P: AsRef<Path>>(p: P) -> io::Result<BMPInfo> {
         let mut f = BufReader::new(File::open(p)?);
         BMPInfo::load_from_reader(&mut f)
     }
-    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> Result<BMPInfo, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead + Seek>(r: &mut R) -> io::Result<BMPInfo> {
         // skip file header
         r.seek(SeekFrom::Start(BMP_FILE_HEADER_SIZE))?;
         let size = r.read_i32::<LittleEndian>()?;
@@ -573,7 +681,7 @@ pub struct BMPInfoHeader {
     bi_clr_important: i32,
 }
 impl BMPInfoHeader {
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPInfoHeader, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<BMPInfoHeader> {
         Ok(BMPInfoHeader {
             bi_size: r.read_i32::<LittleEndian>()?,
             bi_width: r.read_i32::<LittleEndian>()?,
@@ -614,7 +722,7 @@ pub struct RGBQuad {
 }
 
 impl RGBQuad {
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<RGBQuad, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<RGBQuad> {
         Ok(RGBQuad {
             rgb_blue: r.read_u8()?,
             rgb_green: r.read_u8()?,
@@ -656,7 +764,7 @@ pub struct BMPV4Header {
 }
 
 impl BMPV4Header {
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPV4Header, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<BMPV4Header> {
         Ok(BMPV4Header {
             bv4_size: r.read_i32::<LittleEndian>()?,
             bv4_width: r.read_i32::<LittleEndian>()?,
@@ -712,7 +820,7 @@ pub struct CIEXYZTriple {
     ciexyz_blue: CIEXYZ,
 }
 impl CIEXYZTriple {
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<CIEXYZTriple, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<CIEXYZTriple> {
         Ok(CIEXYZTriple {
             ciexyz_red: CIEXYZ::load_from_reader(r)?,
             ciexyz_green: CIEXYZ::load_from_reader(r)?,
@@ -736,7 +844,7 @@ pub struct CIEXYZ {
 }
 
 impl CIEXYZ {
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<CIEXYZ, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<CIEXYZ> {
         Ok(CIEXYZ {
             ciexyz_x: r.read_u32::<LittleEndian>()?,
             ciexyz_y: r.read_u32::<LittleEndian>()?,
@@ -780,7 +888,7 @@ pub struct BMPV5Header {
 }
 
 impl BMPV5Header {
-    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> Result<BMPV5Header, io::Error> {
+    pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<BMPV5Header> {
         Ok(BMPV5Header {
             bv5_size: r.read_i32::<LittleEndian>()?,
             bv5_width: r.read_i32::<LittleEndian>()?,

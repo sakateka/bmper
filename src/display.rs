@@ -11,7 +11,7 @@ use self::gdk_pixbuf::Pixbuf;
 
 use pcx;
 
-fn pixbuf_from_file(name: &str) -> Result<Pixbuf, io::Error> {
+fn pixbuf_from_file(name: &str) -> io::Result<Pixbuf> {
     let pb = Pixbuf::new_from_file(name);
     if pb.is_ok() {
         return Ok(pb.unwrap());
