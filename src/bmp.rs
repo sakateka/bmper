@@ -106,6 +106,12 @@ pub struct Bitmap {
 }
 
 impl Bitmap {
+    pub fn new() -> Bitmap {
+        Bitmap {
+            data: Vec::<u8>::new(),
+            decoded_from: None,
+        }
+    }
     fn border(&mut self, border_width: i16, width: i32, height: i32, bit_count: i16) {
         let bw = border_width as i32;
         let bc = bit_count as i32;
@@ -313,7 +319,7 @@ fn logo_to_rgb_vec(file: &str) -> io::Result<Vec<RGBQuad>> {
 pub struct BMPImage {
     pub header: BMPFileHeader,
     pub info: BMPInfo,
-    bitmap: Bitmap,
+    pub bitmap: Bitmap,
 }
 
 impl BMPImage {
@@ -461,6 +467,15 @@ impl fmt::Display for BMPFileHeader {
 }
 
 impl BMPFileHeader {
+    pub fn new(size: i32, offset: i32) -> BMPFileHeader {
+        BMPFileHeader {
+            bf_type: (('B' as i16) << 8) + 'M' as i16,
+            bf_size: size,
+            bf_reserved1: 0,
+            bf_reserved2: 0,
+            bf_offset_bits: offset,
+        }
+    }
     pub fn load_from_file<P: AsRef<Path>>(p: P) -> io::Result<BMPFileHeader> {
         let mut f = BufReader::new(File::open(p)?);
         BMPFileHeader::load_from_reader(&mut f)
@@ -681,6 +696,27 @@ pub struct BMPInfoHeader {
     bi_clr_important: i32,
 }
 impl BMPInfoHeader {
+    pub fn new(
+        width: i32, height: i32,
+        bpp: i16, size: i32,
+        x_ppm: i32, y_ppm: i32,
+        clr_used: i32,
+        clr_important: i32,
+        ) -> BMPInfoHeader {
+        BMPInfoHeader{
+            bi_size: 40,
+            bi_width: width,
+            bi_height: height,
+            bi_planes: 1,
+            bi_bit_count: bpp,
+            bi_compression: BMPCompression::RGB,
+            bi_size_image: size,
+            bi_x_pels_per_meter: x_ppm,
+            bi_y_pels_per_meter: y_ppm,
+            bi_clr_used: clr_used,
+            bi_clr_important: clr_important,
+        }
+    }
     pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<BMPInfoHeader> {
         Ok(BMPInfoHeader {
             bi_size: r.read_i32::<LittleEndian>()?,
@@ -722,6 +758,14 @@ pub struct RGBQuad {
 }
 
 impl RGBQuad {
+    pub fn new() -> RGBQuad {
+        RGBQuad {
+            rgb_blue: 0,
+            rgb_green: 0,
+            rgb_red: 0,
+            rgb_reserved: 0,
+        }
+    }
     pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<RGBQuad> {
         Ok(RGBQuad {
             rgb_blue: r.read_u8()?,

@@ -9,6 +9,8 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use self::gdk_pixbuf::Pixbuf;
 
+use bmp;
+
 #[derive(Debug, Copy, Clone)]
 pub struct RGBTriple {
     red: u8,
@@ -114,7 +116,7 @@ pub fn decode_line<R: ?Sized + BufRead + Seek>(r: &mut R, row_stride: u16) -> io
 pub fn pixbuf_from_file(name: &str) -> io::Result<Pixbuf> {
     let mut f = BufReader::new(File::open(name)?);
     let header = PCXHeader::load_from_reader(&mut f)?;
-    f.seek(SeekFrom::Start(123))?; // skip header
+    f.seek(SeekFrom::Start(128))?; // skip header
 
     let pcx_row_stride = header.colorplanes as u16 * header.bytesperline;
     let last_row_len = header.width * 3;
@@ -147,4 +149,74 @@ pub fn pixbuf_from_file(name: &str) -> io::Result<Pixbuf> {
         last_row_len as i32,                           // row_stride for pixbuf
     );
     Ok(pixbuf)
+}
+
+struct ColorRonder {
+    from: u32,
+    to: u32,
+    color: bmp::RGBQuad,
+}
+
+impl ColorRonder {
+    fn get_color() -> bmp::RGBQuad {
+        bmp::RGBQuad::new()
+    }
+    fn can_round(src_color: bmp::RGBQuad) -> bool {
+        false
+    }
+}
+
+struct PaletteRounder {
+    palette: Vec<ColorRonder>
+}
+
+impl PaletteRounder {
+    fn from_pxc_palete(palette: Vec<RGBTriple>) -> PaletteRounder {
+        PaletteRounder{
+            palette: Vec::new(),
+        }
+    }
+}
+
+pub fn pcx_256colors_to_bmp_16colors(src_file: &str, dst_file: &str) -> io::Result<()> {
+    let mut src = BufReader::new(File::open(src_file)?);
+    let header = PCXHeader::load_from_reader(&mut src)?;
+    src.seek(SeekFrom::Start(128))?; // skip header
+
+    // https://en.wikipedia.org/wiki/BMP_file_format
+    let bmp_row_stride = (8 * header.width + 31)/32*4;
+
+    let mut dst_bmp = bmp::BMPImage {
+        header: bmp::BMPFileHeader::new(
+                (  // BMP file size
+                    14 + // file header size
+                    40 + // bmp info header size
+                    4 * 16 + // palette size
+                    bmp_row_stride * header.height // bitmap size
+                ) as i32,
+                14 + 40 + 4*256, // offset to bitmap bits
+            ),
+        info: bmp::BMPInfo {
+            bmi_header: bmp::BMPGenericInfoHeader::Info(bmp::BMPInfoHeader::new(
+                header.width as i32,
+                header.height as i32,
+                8, // bits per pixel
+                (bmp_row_stride * header.height) as i32, // bitmap size
+                0, 0,  // x, y pixels per meter (ignored)
+                16, 16,  // colors used, important
+            )),
+            bmi_colors: vec![bmp::RGBQuad::new(); 16],
+        },
+        bitmap: bmp::Bitmap::new(),
+    };
+
+    let pcx_row_stride = header.colorplanes as u16 * header.bytesperline;
+    for _ in 0..header.height {
+        let scanline = decode_line(&mut src, pcx_row_stride)?;
+        for pixel_idx in 0..header.width {
+            let palette_idx = scanline[pixel_idx as usize] as usize;
+            let rgb = header.palette[palette_idx];
+        }
+    }
+    Ok(())
 }

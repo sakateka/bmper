@@ -64,6 +64,19 @@ pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
                         .index(2),
                 ),
         )
+        .subcommand(SubCommand::with_name("convert")
+                .about("Convert 256 color PCX to 16 color BMP")
+                .arg(Arg::with_name("SRC")
+                        .help("Source image file")
+                        .required(true)
+                        .index(1),
+                )
+                .arg(Arg::with_name("DST")
+                        .help("Destination image file")
+                        .required(true)
+                        .index(2),
+                ),
+        )
         .subcommand(SubCommand::with_name("logo")
                 .about("Add logo to 24 bit per pixel BMP file")
                 .arg(Arg::with_name("SRC")

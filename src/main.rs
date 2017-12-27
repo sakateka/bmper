@@ -52,6 +52,13 @@ pub fn main() {
         image.decode_bitmap();
         image.save_to_file(dst).expect(dst);
 
+    } else if let Some(matches) = app.subcommand_matches("convert") {
+        let src = matches.value_of("SRC").unwrap();
+        let dst = matches.value_of("DST").unwrap();
+        let mut image = bmp::BMPImage::load_from_file(src).expect(src);
+        image.decode_bitmap();
+        image.save_to_file(dst).expect(dst);
+
     } else if let Some(matches) = app.subcommand_matches("logo") {
         let src = matches.value_of("SRC").unwrap();
         let dst = matches.value_of("DST").unwrap();
