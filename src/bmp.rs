@@ -469,7 +469,7 @@ impl fmt::Display for BMPFileHeader {
 impl BMPFileHeader {
     pub fn new(size: i32, offset: i32) -> BMPFileHeader {
         BMPFileHeader {
-            bf_type: (('B' as i16) << 8) + 'M' as i16,
+            bf_type: /* LittleEndian */ 'B' as i16 + (('M' as i16) << 8),
             bf_size: size,
             bf_reserved1: 0,
             bf_reserved2: 0,
@@ -748,6 +748,13 @@ impl BMPInfoHeader {
     }
 }
 
+/// In all versions of BMP files starting with Version 3 (Win3x),
+/// the color entries occupy 4 bytes each so that they can be efficiently
+/// read and written as single 32-bit values. Taken as a single value,
+/// the four bytes are ordered as follows: [ZERO][RED][GREEN][BLUE].
+/// Due to the Little Endian format, this means that the Blue value comes first
+/// followed by the green and then the red.
+/// A fourth, unused, byte comes next which is expected to be equal to 0.
 #[derive(Debug, Copy, Clone)]
 pub struct RGBQuad {
     rgb_blue: u8,
@@ -758,14 +765,20 @@ pub struct RGBQuad {
 }
 
 impl RGBQuad {
-    pub fn new() -> RGBQuad {
+    pub fn new(red: u8, green: u8, blue: u8) -> RGBQuad {
         RGBQuad {
-            rgb_blue: 0,
-            rgb_green: 0,
-            rgb_red: 0,
+            rgb_red: red,
+            rgb_green: green,
+            rgb_blue: blue,
             rgb_reserved: 0,
         }
     }
+    pub fn change(&mut self, red: u8, green: u8, blue: u8) {
+            self.rgb_red = red;
+            self.rgb_green = green;
+            self.rgb_blue = blue;
+    }
+
     pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<RGBQuad> {
         Ok(RGBQuad {
             rgb_blue: r.read_u8()?,

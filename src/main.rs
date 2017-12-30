@@ -9,6 +9,8 @@ pub mod encoding;
 pub mod display;
 mod args;
 
+use std::process;
+
 pub fn main() {
     let app = args::build_app("bmper");
 
@@ -55,8 +57,10 @@ pub fn main() {
     } else if let Some(matches) = app.subcommand_matches("convert") {
         let src = matches.value_of("SRC").unwrap();
         let dst = matches.value_of("DST").unwrap();
-        let mut image = bmp::BMPImage::load_from_file(src).expect(src);
-        image.decode_bitmap();
+        let mut image = pcx::pcx_256colors_to_bmp_16colors(src).unwrap_or_else(|e| {
+            eprintln!("Can't convert {} to 16 colors bmp {}: {}", src, dst, e);
+            process::exit(1);
+        });
         image.save_to_file(dst).expect(dst);
 
     } else if let Some(matches) = app.subcommand_matches("logo") {
