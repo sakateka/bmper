@@ -255,11 +255,11 @@ pub fn pcx_256colors_to_bmp_16colors(src_file: &str) -> io::Result<bmp::BMPImage
                 8, // bits per pixel
                 bitmap_size,
                 0, 0,  // x, y pixels per meter (ignored)
-                16, 16,  // colors used, important
+                0, 16,  // colors used, important
             )),
             bmi_colors: vec![bmp::RGBQuad::new(0, 0, 0); 256],
         },
-        bitmap: bmp::Bitmap::new(),
+        bitmap: bmp::Bitmap::with_capacity(bmp_row_stride as usize * header.height as usize),
     };
     for (color, idx) in &palette_rounder.index {
         dst_bmp.info.bmi_colors[*idx] = bmp::RGBQuad::new(color.red, color.green, color.blue);

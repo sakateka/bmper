@@ -106,9 +106,9 @@ pub struct Bitmap {
 }
 
 impl Bitmap {
-    pub fn new() -> Bitmap {
+    pub fn with_capacity(capacity: usize) -> Bitmap {
         Bitmap {
-            data: Vec::<u8>::new(),
+            data: Vec::<u8>::with_capacity(capacity),
             decoded_from: None,
         }
     }
@@ -483,7 +483,7 @@ impl BMPFileHeader {
     pub fn load_from_reader<R: ?Sized + BufRead>(r: &mut R) -> io::Result<BMPFileHeader> {
         let mut sig = [0u8; 2];
         try!(r.read_exact(&mut sig));
-        if &sig != b"BM" {
+        if sig != b"BM"[..] {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Invalid BMP signature: '{:?}'", sig),
@@ -501,7 +501,7 @@ impl BMPFileHeader {
     pub fn save_to_writer<W: ?Sized + Write>(&self, w: &mut W) -> io::Result<()> {
         w.write_i16::<LittleEndian>(self.bf_type)?;
         w.write_i32::<LittleEndian>(self.bf_size)?;
-        w.write_i32::<LittleEndian>(0i32)?; // reserved1 and reserved2
+        w.write_i32::<LittleEndian>(0i32)?; // reserved1 0_i16 and reserved2 0_i16
         w.write_i32::<LittleEndian>(self.bf_offset_bits)?;
         Ok(())
     }
