@@ -254,9 +254,6 @@ impl PaletteRounder {
                 self.palette[idx] = self.palette[to];
             }
         }
-        for c in &self.palette {
-            println!("{:?}", c);
-        }
         self.palette.clone()
     }
 }
