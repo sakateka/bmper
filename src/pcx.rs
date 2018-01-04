@@ -4,7 +4,6 @@
 
 extern crate gdk_pixbuf;
 
-use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, SeekFrom, Seek};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -203,19 +202,12 @@ impl Cube {
         }
 
         self.colors.sort_by(|a, b| {
-            let (a1, a2, a3, b1, b2, b3) = if max == red {
-                (a.red, a.green, a.blue, b.red, b.green, b.blue)
+            if max == red {
+                (a.red, a.green, a.blue).cmp(&(b.red, b.green, b.blue))
             } else if max == green {
-                (a.green, a.red, a.blue, b.green, b.red, b.blue)
+                (a.green, a.red, a.blue).cmp(&(b.green, b.red, b.blue))
             } else {
-                (a.blue, a.green, a.red, b.blue, b.green, b.red)
-            };
-            if a1 == b1 && a2 == b2 && a3 == b3 {
-                cmp::Ordering::Equal
-            } else if a1 > b1 && a2 > b2 && a3 > b3 {
-                cmp::Ordering::Greater
-            } else {
-                cmp::Ordering::Less
+                (a.blue, a.green, a.red).cmp(&(b.blue, b.green, b.red))
             }
         });
         let split_at = self.colors.len()/2;
