@@ -4,7 +4,8 @@
 
 extern crate gdk_pixbuf;
 
-use std::collections::HashMap;
+use std::cmp;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, SeekFrom, Seek};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
@@ -162,106 +163,164 @@ pub fn pixbuf_from_file(name: &str) -> io::Result<Pixbuf> {
 }
 
 
+
+const LUMA: (f64, f64, f64)  =  (0.2126/*R*/, 0.7152/*G*/, 0.0722/*B*/);
+
 #[derive(Debug)]
-struct PaletteRounder {
-    target_size: usize,
-    map: HashMap<usize, usize>,
-    index: HashMap<RGBTriple, usize>,
-    frequency: Vec<usize>,
-    palette: Vec<RGBTriple>,
+struct Cube {
+    range: ((u32, u32 /*red*/), (u32, u32 /*green*/), (u32, u32 /*blue*/)),
+    color: RGBTriple,
+    colors: Vec<RGBTriple>,
 }
 
-impl PaletteRounder {
-    fn from_pcx_palette(palette: &Vec<RGBTriple>, target_size: usize) -> PaletteRounder {
-        let capacity = palette.len();
-        PaletteRounder{
-            target_size: target_size,
-            map: HashMap::with_capacity(capacity),
-            index: HashMap::with_capacity(capacity),
-            frequency: vec![0_usize; capacity],
+impl Cube {
+    fn new() -> Cube {
+        Cube{
+            range: ((0, 0), (0, 0), (0, 0)),
+            color: RGBTriple::new(0, 0, 0),
+            colors: Vec::new(),
+        }
+    }
+    fn split(&mut self) -> Cube {
+        let mut red = 0_f64;
+        let mut green = 0_f64;
+        let mut blue = 0_f64;
+
+        for c in &self.colors {
+            red += c.red as f64;
+            green += c.green as f64;
+            blue += c.blue as f64;
+        }
+
+        red *= LUMA.0;
+        green *= LUMA.1;
+        blue *= LUMA.2;
+        let mut max = red;
+        if red < green {
+            max = green;
+        } else if red < blue {
+            max = blue;
+        }
+
+        self.colors.sort_by(|a, b| {
+            let (a1, a2, a3, b1, b2, b3) = if max == red {
+                (a.red, a.green, a.blue, b.red, b.green, b.blue)
+            } else if max == green {
+                (a.green, a.red, a.blue, b.green, b.red, b.blue)
+            } else {
+                (a.blue, a.green, a.red, b.blue, b.green, b.red)
+            };
+            if a1 == b1 && a2 == b2 && a3 == b3 {
+                cmp::Ordering::Equal
+            } else if a1 > b1 && a2 > b2 && a3 > b3 {
+                cmp::Ordering::Greater
+            } else {
+                cmp::Ordering::Less
+            }
+        });
+        let split_at = self.colors.len()/2;
+        let colors = self.colors.split_off(split_at);
+        Cube{
+            range: ((0, 0), (0, 0), (0, 0)),
+            color: RGBTriple::new(0, 0, 0),
+            colors: colors,
+        }
+    }
+    fn set_color(&mut self, freq: &HashMap<RGBTriple, f64>) {
+        let (mut red, mut green, mut blue) = (0_f64, 0_f64, 0_f64);
+        let total = self.colors.iter().fold(0f64, |acc, x| acc + freq.get(x).unwrap());
+        for color in &self.colors {
+            red += color.red as f64 * freq.get(&color).unwrap();
+            green += color.green as f64 * freq.get(&color).unwrap();
+            blue += color.blue as f64 * freq.get(&color).unwrap();
+        }
+        red /= total;
+        green /= total;
+        blue /= total;
+        self.color = RGBTriple::new(red.round() as u8, green.round() as u8, blue.round() as u8);
+        println!("Cube color : {:?}", self.color);
+    }
+}
+
+#[derive(Debug)]
+struct Palette {
+    bit_count: usize,
+    cubes: Vec<Cube>,
+    palette: Vec<RGBTriple>,
+    frequency: HashMap<RGBTriple, f64>,
+}
+
+impl Palette {
+    fn from_pcx_palette(palette: &Vec<RGBTriple>, bit_count: usize) -> Palette {
+        Palette{
+            bit_count: bit_count,
+            cubes: Vec::with_capacity(bit_count),
             palette: palette.clone(),
+            frequency: HashMap::with_capacity(palette.len()),
         }
     }
 
-    fn compute_frequency(&mut self, bitmap: &Vec<u8>, row_stride: usize, height: usize, width: usize) {
-        for line_idx in 0..height {
-            for pixel_idx in 0..width {
-                self.frequency[bitmap[row_stride * line_idx + pixel_idx] as usize] += 1;
+    fn compute_frequency(&mut self, bitmap: &Vec<u8>, row_stride: usize, h: &PCXHeader) {
+        let mut counter = vec![0f64; h.palette.len()];
+        for line_idx in 0..(h.height as usize) {
+            for pixel_idx in 0..(h.width as usize) {
+                counter[bitmap[row_stride * line_idx + pixel_idx] as usize] += 1f64;
             }
+        }
+        for idx in 0..counter.len() {
+            let prev = match self.frequency.get(&h.palette[idx]) {
+                Some(&x) => x,
+                None => 0f64,
+            };
+            self.frequency.insert(h.palette[idx], counter[idx] + prev);
         }
     }
 
-    fn round_pcx_palette(&mut self) -> Vec<RGBTriple> {
-        let palette_len = self.palette.len();
-        assert!(self.frequency.len() == palette_len, "Frequency counter size not match palette size");
-        let mut color_deltas = Vec::with_capacity(palette_len.pow(2)/2);
-        for ic in 0..palette_len {
-            for icc in 0..palette_len {
-                if ic == icc {
-                    continue;
-                }
-                let c = &self.palette[ic];
-                let cc = &self.palette[icc];
-                let cur_delta = ((cc.red as i16 - c.red as i16).abs() as usize).pow(2) +
-                                ((cc.green as i16 - c.green as i16).abs() as usize).pow(2) +
-                                ((cc.blue as i16 - c.blue as i16).abs() as usize).pow(2);
-                color_deltas.push((ic, icc, cur_delta));
-            }
-        }
-        color_deltas.sort_by(|a, b| a.2.cmp(&b.2));
-        let mut current_size = palette_len;
-        'deltas: for d in color_deltas {
-            let mut src = d.0;
-            let mut dst = d.1;
-            if self.frequency[src] < self.frequency[dst] {
-                src = d.1;
-                dst = d.0;
-            }
-            let mut from = src;
-            let to = dst;
-            while let Some(color_idx) = self.map.get(&from) {
-                if src == *color_idx || dst == *color_idx {
-                    continue 'deltas;
-                };
-                from = *color_idx;
-            }
-            if from == to {
-                continue 'deltas;
-            }
-            match self.map.get(&to) {
-                None => {
-                    self.map.insert(from, to);
-                    current_size -= 1;
-                    if current_size == self.target_size {
-                        break;
-                    };
-                },
-                Some(_) => (),
-            }
+    fn color_delta(a: &RGBTriple, b: &RGBTriple) -> usize {
+        ((b.red as i16   - a.red as i16).abs() as usize).pow(2) +
+        ((b.green as i16 - a.green as i16).abs() as usize).pow(2) +
+        ((b.blue as i16  - a.blue as i16).abs() as usize).pow(2)
+    }
 
+    fn round_pcx_palette(&mut self) {
+        let mut unique_colors = HashSet::new();
+        for c in &self.palette {
+            unique_colors.insert(c);
         }
-        for idx in 0..palette_len {
-            let mut src = idx;
-            let mut from_colors = Vec::new();
-            while let Some(color_idx) = self.map.get(&src) {
-                from_colors.push(*color_idx);
-                src = *color_idx;
+        let mut cube = Cube::new();
+        cube.colors.append(&mut unique_colors.iter().map(|c|{*(*c)}).collect());
+        self.cubes.push(cube);
+
+        for step in 1..(self.bit_count+1) {
+            let mut new_cubes = Vec::with_capacity(step);
+            for c in &mut self.cubes {
+                new_cubes.push(c.split());
             }
-            if let Some(to) = from_colors.pop() {
-                for from in from_colors {
-                    self.palette[from] = self.palette[to];
-                }
-                self.palette[idx] = self.palette[to];
+            self.cubes.append(&mut new_cubes);
+        }
+        for c in &mut self.cubes {
+            c.set_color(&self.frequency);
+        }
+    }
+
+    fn cube_color(&self, c: RGBTriple) -> RGBTriple {
+        let mut nearest_cube = 0;
+        let mut delta = Palette::color_delta(&c, &self.cubes[0].color);
+
+        for idx in 1..self.cubes.len() {
+            let next_delta = Palette::color_delta(&c, &self.cubes[idx].color);
+            if delta > next_delta {
+                delta = next_delta;
+                nearest_cube = idx;
             }
         }
-        self.palette.clone()
+        self.cubes[nearest_cube].color
     }
 }
 
 pub fn pcx_256colors_to_bmp_16colors(src_file: &str) -> io::Result<bmp::BMPImage> {
     let mut src = BufReader::new(File::open(src_file)?);
     let header = PCXHeader::load_from_reader(&mut src)?;
-    let mut palette_rounder = PaletteRounder::from_pcx_palette(&header.palette, 16);
     src.seek(SeekFrom::Start(128))?; // skip header
 
     // https://en.wikipedia.org/wiki/BMP_file_format
@@ -281,7 +340,7 @@ pub fn pcx_256colors_to_bmp_16colors(src_file: &str) -> io::Result<bmp::BMPImage
                 0, 0,  // x, y pixels per meter (ignored)
                 256, 16,  // colors used, important
             )),
-            bmi_colors: vec![bmp::RGBQuad::new(0, 0, 0); 256],
+            bmi_colors: Vec::with_capacity(header.palette.len()),
         },
         bitmap: bmp::Bitmap::with_capacity(bmp_row_stride * header.height as usize),
     };
@@ -293,15 +352,16 @@ pub fn pcx_256colors_to_bmp_16colors(src_file: &str) -> io::Result<bmp::BMPImage
         dst_bmp.bitmap.data.append(&mut scanline);
     }
     dst_bmp.bitmap.data.reverse();
-    palette_rounder.compute_frequency(
-        &dst_bmp.bitmap.data, bmp_row_stride, header.height as usize, header.width as usize,
-    );
-    let new_palette: Vec<bmp::RGBQuad> = palette_rounder.round_pcx_palette().iter().map(|c| {
-        bmp::RGBQuad::new(c.red, c.green, c.blue)
-    }).collect();
 
-    for idx in 0..new_palette.len() {
-        dst_bmp.info.bmi_colors[idx] = new_palette[idx];
+    let mut palette = Palette::from_pcx_palette(&header.palette, 4);
+    palette.compute_frequency(&dst_bmp.bitmap.data, bmp_row_stride, &header);
+    palette.round_pcx_palette();
+
+    for idx in 0..header.palette.len() {
+        dst_bmp.info.bmi_colors.push({
+            let c = palette.cube_color(header.palette[idx]);
+            bmp::RGBQuad::new(c.red, c.green, c.blue)
+        });
     }
     Ok(dst_bmp)
 }
