@@ -230,7 +230,6 @@ impl Cube {
         green /= total;
         blue /= total;
         self.color = RGBTriple::new(red.round() as u8, green.round() as u8, blue.round() as u8);
-        println!("Cube color : {:?}", self.color);
     }
 }
 
