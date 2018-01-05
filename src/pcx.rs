@@ -167,7 +167,6 @@ const LUMA: (f64, f64, f64)  =  (0.2126/*R*/, 0.7152/*G*/, 0.0722/*B*/);
 
 #[derive(Debug)]
 struct Cube {
-    range: ((u32, u32 /*red*/), (u32, u32 /*green*/), (u32, u32 /*blue*/)),
     color: RGBTriple,
     colors: Vec<RGBTriple>,
 }
@@ -175,31 +174,33 @@ struct Cube {
 impl Cube {
     fn new() -> Cube {
         Cube{
-            range: ((0, 0), (0, 0), (0, 0)),
             color: RGBTriple::new(0, 0, 0),
             colors: Vec::new(),
         }
     }
     fn split(&mut self) -> Cube {
-        let mut red = 0_f64;
-        let mut green = 0_f64;
-        let mut blue = 0_f64;
+        let mut min_red = 0_u8;
+        let mut min_green = 0_u8;
+        let mut min_blue = 0_u8;
+        let mut max_red = 0_u8;
+        let mut max_green = 0_u8;
+        let mut max_blue = 0_u8;
 
         for c in &self.colors {
-            red += c.red as f64;
-            green += c.green as f64;
-            blue += c.blue as f64;
+            min_red = min_red.min(c.red);
+            max_red = max_red.max(c.red);
+
+            min_green = min_green.min(c.green);
+            max_green = max_green.max(c.green);
+
+            min_blue = min_blue.min(c.blue);
+            max_blue = max_blue.max(c.blue);
         }
 
-        red *= LUMA.0;
-        green *= LUMA.1;
-        blue *= LUMA.2;
-        let mut max = red;
-        if red < green {
-            max = green;
-        } else if red < blue {
-            max = blue;
-        }
+        let red = (max_red - min_red) as f64;
+        let green = (max_green - min_green) as f64;
+        let blue = (max_blue - min_blue) as f64;
+        let max = red.max(green).max(blue);
 
         self.colors.sort_by(|a, b| {
             if max == red {
@@ -213,7 +214,6 @@ impl Cube {
         let split_at = self.colors.len()/2;
         let colors = self.colors.split_off(split_at);
         Cube{
-            range: ((0, 0), (0, 0), (0, 0)),
             color: RGBTriple::new(0, 0, 0),
             colors: colors,
         }
@@ -267,10 +267,10 @@ impl Palette {
         }
     }
 
-    fn color_delta(a: &RGBTriple, b: &RGBTriple) -> usize {
-        ((b.red as i16   - a.red as i16).abs() as usize).pow(2) +
-        ((b.green as i16 - a.green as i16).abs() as usize).pow(2) +
-        ((b.blue as i16  - a.blue as i16).abs() as usize).pow(2)
+    fn color_delta(a: &RGBTriple, b: &RGBTriple) -> f64 {
+       LUMA.0*(((b.red as i16   - a.red as i16).abs() as f64) * ((b.red as i16   - a.red as i16).abs() as f64)) +
+       LUMA.1*(((b.green as i16 - a.green as i16).abs() as f64) * ((b.green as i16 - a.green as i16).abs() as f64)) +
+       LUMA.2*(((b.blue as i16  - a.blue as i16).abs() as f64) * (b.blue as i16  - a.blue as i16).abs() as f64)
     }
 
     fn round_pcx_palette(&mut self) {
