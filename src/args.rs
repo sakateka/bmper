@@ -3,7 +3,7 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 pub fn build_app<'a>(name: &str) -> ArgMatches<'a> {
     App::new(name)
         .version("0.1.0")
-        .author("Sergey K. <s.kacheev@gmail.com>")
+        .author("Sergey K. <uo0@ya.ru>")
         .about("BMP image metadata parser")
         .subcommand(SubCommand::with_name("meta")
                 .about("Show image metadata")
